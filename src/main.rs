@@ -149,9 +149,9 @@ pub fn generate_image_background(path: String, _output: WlcOutput) {
     let mut image = image.to_rgba();
     let width = image.width();
     let height = image.height();
-    let size = width * height;
+    let stride = width * 4;
+    let size = stride * height;
     // TODO Split this into its own function
-    let mut out_file = File::create("out.bin").unwrap();
     {
         let pixels = image.enumerate_pixels_mut();
         for (_x, _y, pixel) in pixels {
@@ -166,13 +166,39 @@ pub fn generate_image_background(path: String, _output: WlcOutput) {
         }
     }
     let vec = image.into_vec();
-    out_file.write_all(&*vec).unwrap();
-    let tmp = tempfile::NamedTempFile::new().expect("Unable to create a tempfile.");
+    let mut tmp = tempfile::NamedTempFile::new().expect("Unable to create a tempfile.");
     tmp.set_len(size as u64).expect("Could not truncate length of file");
+    tmp.write_all(&*vec).unwrap();
 
 
+    // TODO I want this shit outta here
+    let (display, iter) = get_display()
+        .expect("Unable to connect to a wayland compositor");
+    let (env, evt_iter) = WaylandEnv::init(display, iter);
+    let compositor = env.compositor.as_ref().map(|o| &o.0).unwrap();
+    let shell = env.shell.as_ref().map(|o| &o.0).unwrap();
+    let shm = env.shm.as_ref().map(|o| &o.0).unwrap();
+    let seat = env.seat.as_ref().map(|o| &o.0).unwrap();
 
+    // Create the surface we are going to write into
+    let surface = compositor.create_surface();
+    let shell_surface = shell.get_shell_surface(&surface);
 
+    let pool = shm.create_pool(tmp.as_raw_fd(), size as i32);
+    let buffer = pool.create_buffer(0, width as i32, height as i32, stride as i32, WlShmFormat::Argb8888);
+    // Tell Way Cooler not to put this in the tree, treat as background
+    // TODO Make this less hacky by actually giving way cooler access to this thing...
+    shell_surface.set_class("Background".into());
+    // TODO Actually give it the path or something idk
+    shell_surface.set_title(format!("Image background yay"));
+
+    // Attach the buffer to the surface
+    surface.attach(Some(&buffer), 0, 0);
+    surface.commit();
+    surface.set_buffer_scale(1);
+    surface.damage(0, 0, width as i32, height as i32);
+    main_background_loop(compositor, shell, shm, seat, surface,
+                         shell_surface, buffer, evt_iter);
 
 /*    //let pix_buf = Pixbuf::new_from_file(path.as_str())
     //    .expect("Could not read the file");
