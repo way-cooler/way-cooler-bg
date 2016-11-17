@@ -5,16 +5,13 @@ extern crate wayland_client;
 extern crate tempfile;
 
 extern crate byteorder;
-extern crate gdk_pixbuf;
-extern crate cairo;
-extern crate gdk_sys;
-extern crate memmap;
+extern crate image;
 
 use std::env;
 use std::process::exit;
-use cairo::{ImageSurface};
+use std::io::{BufRead, BufReader};
+use image::{load, ImageFormat};
 //use gdk_sys;
-use memmap::Mmap;
 
 fn main() {
     let args: Vec<_> = env::args().collect();
@@ -126,10 +123,61 @@ pub fn generate_solid_background(color: Color, _output: WlcOutput) {
                          shell_surface, buffer, evt_iter);
 }
 
+fn weird_math(num: u8, third_num: u32) -> u8 {
+    let big_num = num as u32;
+    ((big_num * third_num) / 255) as u8
+}
+
+#[test]
+fn test_weird_math() {
+    assert_eq!(weird_math(10, 254), 9);
+    assert_eq!(weird_math(2, 255), 2);
+    assert_eq!(weird_math(255, 500), 500);
+}
+
 /// Given the data from an image, writes it to a special Wayland surface
 /// which is then rendered as a background for Way Cooler.
 pub fn generate_image_background(path: String, _output: WlcOutput) {
-    //let pix_buf = Pixbuf::new_from_file(path.as_str())
+    let image_file = File::open(path.clone())
+        .unwrap_or_else(|_| {
+            println!("Could not open \"{:?}\"", path);
+            panic!("Could not open image file");
+        });
+    let image_reader = BufReader::new(image_file);
+    let image = load(image_reader, ImageFormat::PNG)
+        .expect("Image was not a png file!");
+    let mut image = image.to_rgba();
+    let width = image.width();
+    let height = image.height();
+    // TODO Split this into its own function
+    let mut out_file = File::create("out.bin").unwrap();
+    {
+        let pixels = image.enumerate_pixels_mut();
+        for (_x, _y, pixel) in pixels {
+            let alpha = pixel[3] as u32;
+            pixel[0] = weird_math(pixel[0], alpha);
+            pixel[1] = weird_math(pixel[1], alpha);
+            pixel[2] = weird_math(pixel[2], alpha);
+
+            let mut pixels: [u8; 4] = [0; 4];
+            pixels[2] = pixel[0];
+            pixels[1] = pixel[1];
+            pixels[0] = pixel[2];
+            pixels[3] = pixel[3];
+            unsafe {
+                out_file.write_u32::<NativeEndian>(transmute(pixels))
+                    .unwrap();
+            }
+        }
+    }
+    //let tmp = tempfile::NamedTempFile::new().expect("Unable to create a tempfile.");
+    //tmp.set_len(size as u64).expect("Could not truncate length of file");
+
+
+
+
+
+/*    //let pix_buf = Pixbuf::new_from_file(path.as_str())
     //    .expect("Could not read the file");
     //let image_file = File::open(path.clone())
     let image_file = ::std::fs::OpenOptions::new()
@@ -167,7 +215,7 @@ pub fn generate_image_background(path: String, _output: WlcOutput) {
     let stride = background_surface.get_stride();
     let size: i32 = stride * height;
     println!("Size: {}, mmap len: {}", size, map.len());
-    let size = map.len() as i32;
+    //let size = map.len() as i32;
     //let tmp = tempfile::NamedTempFile::new().expect("Unable to create a tempfile.");
     //tmp.set_len(size as u64).expect("Could not truncate length of file");
     // Create the buffer that is mem-mapped to the temp file descriptor
@@ -188,6 +236,7 @@ pub fn generate_image_background(path: String, _output: WlcOutput) {
     println!("{:?}", unsafe{map.as_slice()});
     main_background_loop(compositor, shell, shm, seat, surface,
                          shell_surface, buffer, evt_iter);
+    */
 }
 
 #[allow(dead_code)]

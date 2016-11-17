@@ -10,9 +10,7 @@ gdk-pixbuf = "0.1.0"
 tempfile = "2.1"
 byteorder = ">= 0.3, < 0.6"
 rustwlc = "0.5"
-cairo-rs = {version = "^0", features = ["png"] }#{ git = "https://github.com/gtk-rs/cairo" } #"^0"
-gdk-sys = "0.3.1"
-memmap = "0.5"
+image = "^0.10.3"
 
 [dependencies.gtk]
 version = "0.1.0"
