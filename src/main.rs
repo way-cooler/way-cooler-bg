@@ -9,7 +9,7 @@ extern crate image;
 
 use std::env;
 use std::process::exit;
-use std::io::{BufRead, BufReader};
+use std::io::{BufReader};
 use image::{load, ImageFormat};
 //use gdk_sys;
 
@@ -149,6 +149,7 @@ pub fn generate_image_background(path: String, _output: WlcOutput) {
     let mut image = image.to_rgba();
     let width = image.width();
     let height = image.height();
+    let size = width * height;
     // TODO Split this into its own function
     let mut out_file = File::create("out.bin").unwrap();
     {
@@ -159,19 +160,15 @@ pub fn generate_image_background(path: String, _output: WlcOutput) {
             pixel[1] = weird_math(pixel[1], alpha);
             pixel[2] = weird_math(pixel[2], alpha);
 
-            let mut pixels: [u8; 4] = [0; 4];
-            pixels[2] = pixel[0];
-            pixels[1] = pixel[1];
-            pixels[0] = pixel[2];
-            pixels[3] = pixel[3];
-            unsafe {
-                out_file.write_u32::<NativeEndian>(transmute(pixels))
-                    .unwrap();
-            }
+            let tmp = pixel[2];
+            pixel[2] = pixel[0];
+            pixel[0] = tmp;
         }
     }
-    //let tmp = tempfile::NamedTempFile::new().expect("Unable to create a tempfile.");
-    //tmp.set_len(size as u64).expect("Could not truncate length of file");
+    let vec = image.into_vec();
+    out_file.write_all(&*vec).unwrap();
+    let tmp = tempfile::NamedTempFile::new().expect("Unable to create a tempfile.");
+    tmp.set_len(size as u64).expect("Could not truncate length of file");
 
 
 
