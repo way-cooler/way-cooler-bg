@@ -8,12 +8,10 @@ extern crate image;
 
 use std::env;
 use std::process::exit;
-use std::io::{BufReader};
-use image::{load, ImageFormat};
+use image::open;
 use std::mem::transmute;
 use std::os::unix::io::AsRawFd;
 use std::io::Write;
-use std::fs::File;
 
 use wayland_client::wayland::get_display;
 use wayland_client::wayland::compositor::{WlCompositor, WlSurface};
@@ -83,7 +81,7 @@ fn main() {
         let color = Color::from_u32(color);
         generate_solid_background(color, &mut background_surface, &env)
     } else {
-        generate_image_background(input.clone(), &mut background_surface, &env)
+        generate_image_background(input.as_str(), &mut background_surface, &env)
     }.expect("could not generate image");
     let shell = env.shell.as_ref().map(|o| &o.0).unwrap();
     let shell_surface = shell.get_shell_surface(&background_surface);
@@ -143,17 +141,14 @@ fn generate_solid_background(color: Color, background_surface: &mut WlSurface,
 
 /// Given the data from an image, writes it to a special Wayland surface
 /// which is then rendered as a background for Way Cooler.
-fn generate_image_background(path: String, background_surface: &mut WlSurface,
+fn generate_image_background(path: &str, background_surface: &mut WlSurface,
                                  env: &WaylandEnv) -> BufferResult {
-    let image_file = File::open(path.clone())
+    // TODO support more formats, split into separate function
+    let image = open(path)
         .unwrap_or_else(|_| {
             println!("Could not open \"{:?}\"", path);
             panic!("Could not open image file");
         });
-    let image_reader = BufReader::new(image_file);
-    // TODO support more formats, split into separate function
-    let image = load(image_reader, ImageFormat::PNG)
-        .expect("Image was not a png file!");
     let mut image = image.to_rgba();
     let width = image.width();
     let height = image.height();
@@ -208,15 +203,11 @@ fn cursor_surface(cursor_path: &str, cursor_surface: &mut WlSurface, env: &Wayla
         ::std::mem::forget(cursor_frame_buffer);
         return Ok(CursorBuffer::Null)
     } else {
-        let cursor_file = File::open(cursor_path.clone())
+        let image = open(cursor_path)
             .unwrap_or_else(|_| {
                 println!("Could not open \"{:?}\"", cursor_path);
                 panic!("Could not open image file");
             });
-        let image_reader = BufReader::new(cursor_file);
-        // TODO support more formats, split into separate function
-        let image = load(image_reader, ImageFormat::PNG)
-            .expect("Image was not a png file!");
         let mut image = image.to_rgba();
         let width = image.width();
         let height = image.height();
