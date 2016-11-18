@@ -118,7 +118,7 @@ fn generate_solid_background(color: Color, background_surface: &mut WlSurface,
     //let resolution = output.get_resolution()
     //    .expect("Couldn't get output resolution");
     //let (width, height) = (resolution.w as i32, resolution.h as i32);
-    let width = 800; let height = 600;
+    let width = 16; let height = 9;
     let size = (width * height) as i32;
 
     // Write in the color coding to the surface
