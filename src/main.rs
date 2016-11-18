@@ -1,4 +1,3 @@
-extern crate rustwlc;
 #[macro_use]
 extern crate wayland_client;
 
@@ -11,35 +10,15 @@ use std::env;
 use std::process::exit;
 use std::io::{BufReader};
 use image::{load, ImageFormat};
-//use gdk_sys;
-
-fn main() {
-    let args: Vec<_> = env::args().collect();
-    if args.len() < 3 {
-        println!("Please supply either a file path or a color (written in hex)");
-        exit(1);
-    }
-    let input = &args[1];
-    let cursor_path = &args[2];
-    if let Ok(color) = input.parse::<u32>() {
-        let color = Color::from_u32(color);
-        generate_solid_background(color, cursor_path.clone());
-    } else {
-        generate_image_background(input.clone(), cursor_path.clone());
-    }
-}
-
 use std::mem::transmute;
 use std::os::unix::io::AsRawFd;
 use std::io::Write;
 use std::fs::File;
 
-//use gdk_pixbuf::{Pixbuf, InterpType};
-
 use wayland_client::wayland::get_display;
 use wayland_client::wayland::compositor::{WlCompositor, WlSurface};
-use wayland_client::wayland::shell::{WlShellSurface, WlShell};
-use wayland_client::wayland::shm::{WlBuffer, WlShm, WlShmFormat};
+use wayland_client::wayland::shell::WlShell;
+use wayland_client::wayland::shm::{WlShm, WlShmFormat};
 use wayland_client::wayland::seat::{WlSeat, WlPointerEvent};
 use wayland_client::cursor::load_theme;
 use wayland_client::{EventIterator, Proxy};
@@ -70,6 +49,28 @@ impl Color {
     }
 }
 
+fn main() {
+    let args: Vec<_> = env::args().collect();
+    if args.len() < 3 {
+        println!("Please supply either a file path or a color (written in hex)");
+        println!("Please also supply a path to a cursor image");
+        exit(1);
+    }
+    let input = &args[1];
+    let cursor_path = &args[2];
+    if let Ok(color) = input.parse::<u32>() {
+        let color = Color::from_u32(color);
+        generate_solid_background(color, cursor_path.clone());
+    } else {
+        generate_image_background(input.clone(), cursor_path.clone());
+    }
+}
+
+fn weird_math(num: u8, third_num: u32) -> u8 {
+    let big_num = num as u32;
+    ((big_num * third_num) / 255) as u8
+}
+
 /// Given a solid color, writes bytes associated with that color to
 /// a special Wayland surface which is then rendered as a background for Way Cooler.
 pub fn generate_solid_background(color: Color, cursor_path: String) {
@@ -80,11 +81,10 @@ pub fn generate_solid_background(color: Color, cursor_path: String) {
     let compositor = env.compositor.as_ref().map(|o| &o.0).unwrap();
     let shell = env.shell.as_ref().map(|o| &o.0).unwrap();
     let shm = env.shm.as_ref().map(|o| &o.0).unwrap();
-    let seat = env.seat.as_ref().map(|o| &o.0).unwrap();
 
     // Create the surface we are going to write into
-    let surface = compositor.create_surface();
-    let shell_surface = shell.get_shell_surface(&surface);
+    let background_surface = compositor.create_surface();
+    let shell_surface = shell.get_shell_surface(&background_surface);
     let mut tmp = tempfile::tempfile().ok().expect("Unable to create a tempfile.");
 
     // Calculate how big the buffer needs to be from the output resolution
@@ -113,23 +113,10 @@ pub fn generate_solid_background(color: Color, cursor_path: String) {
     shell_surface.set_title(format!("0x{:x}", color.as_u32()));
 
     // Attach the buffer to the surface
-    surface.attach(Some(&buffer), 0, 0);
+    background_surface.attach(Some(&buffer), 0, 0);
 
-    let cursor_surface = cursor_surface(cursor_path.as_str(), compositor, shm, seat);
-    main_background_loop(compositor, shell, shm, seat, surface,
-                         shell_surface, cursor_surface, buffer, evt_iter);
-}
-
-fn weird_math(num: u8, third_num: u32) -> u8 {
-    let big_num = num as u32;
-    ((big_num * third_num) / 255) as u8
-}
-
-#[test]
-fn test_weird_math() {
-    assert_eq!(weird_math(10, 254), 9);
-    assert_eq!(weird_math(2, 255), 2);
-    assert_eq!(weird_math(255, 500), 500);
+    let cursor_surface = cursor_surface(cursor_path.as_str(), &env);
+    main_background_loop(background_surface, cursor_surface, evt_iter, &env);
 }
 
 /// Given the data from an image, writes it to a special Wayland surface
@@ -176,14 +163,13 @@ pub fn generate_image_background(path: String, cursor_path: String) {
     let compositor = env.compositor.as_ref().map(|o| &o.0).unwrap();
     let shell = env.shell.as_ref().map(|o| &o.0).unwrap();
     let shm = env.shm.as_ref().map(|o| &o.0).unwrap();
-    let seat = env.seat.as_ref().map(|o| &o.0).unwrap();
 
     // Create the surface we are going to write into
-    let surface = compositor.create_surface();
-    let shell_surface = shell.get_shell_surface(&surface);
+    let background_surface = compositor.create_surface();
+    let shell_surface = shell.get_shell_surface(&background_surface);
 
     let pool = shm.create_pool(tmp.as_raw_fd(), size as i32);
-    let buffer = pool.create_buffer(0, width as i32, height as i32, stride as i32, WlShmFormat::Argb8888);
+    let background_buffer = pool.create_buffer(0, width as i32, height as i32, stride as i32, WlShmFormat::Argb8888);
     // Tell Way Cooler not to put this in the tree, treat as background
     // TODO Make this less hacky by actually giving way cooler access to this thing...
     shell_surface.set_class("Background".into());
@@ -191,18 +177,19 @@ pub fn generate_image_background(path: String, cursor_path: String) {
     shell_surface.set_title(format!("Image background yay"));
 
     // Attach the buffer to the surface
-    surface.attach(Some(&buffer), 0, 0);
-    surface.commit();
-    surface.set_buffer_scale(1);
-    surface.damage(0, 0, width as i32, height as i32);
-    let cursor_surface = cursor_surface(cursor_path.as_str(), compositor, shm, seat);
-    main_background_loop(compositor, shell, shm, seat, surface, shell_surface, cursor_surface,
-                         buffer, evt_iter);
+    background_surface.attach(Some(&background_buffer), 0, 0);
+    background_surface.commit();
+    background_surface.set_buffer_scale(1);
+    background_surface.damage(0, 0, width as i32, height as i32);
+    let cursor_surface = cursor_surface(cursor_path.as_str(), &env);
+    main_background_loop(background_surface, cursor_surface, evt_iter, &env);
 
 }
 
-fn cursor_surface(cursor_path: &str, compositor: &WlCompositor, shm: &WlShm, seat: &WlSeat)
-                  -> WlSurface {
+fn cursor_surface(cursor_path: &str, env: &WaylandEnv) -> WlSurface {
+    let compositor = env.compositor.as_ref().map(|o| &o.0).unwrap();
+    let shm = env.shm.as_ref().map(|o| &o.0).unwrap();
+
     let cursor_surface = compositor.create_surface();
     let cursor_theme = load_theme(None, 16, shm);
     /* If the theme has a predefined cursor, just use that */
@@ -254,17 +241,15 @@ fn cursor_surface(cursor_path: &str, compositor: &WlCompositor, shm: &WlShm, sea
 /// Need to keep the surface alive, and update it if the
 /// user wants to change the background.
 #[allow(unused_variables)]
-fn main_background_loop(compositor: &WlCompositor, shell: &WlShell, shm: &WlShm,
-                        seat: &WlSeat,
-                        surface: WlSurface, shell_surface: WlShellSurface,
-                        cursor_surface: WlSurface,
-                        buffer: WlBuffer, mut event_iter: EventIterator) {
+fn main_background_loop(background_surface: WlSurface, cursor_surface: WlSurface, mut event_iter: EventIterator, env: &WaylandEnv) {
     use wayland_client::wayland::WaylandProtocolEvent;
     use wayland_client::Event;
+    let seat = env.seat.as_ref().map(|o| &o.0).unwrap();
     let mut pointer = seat.get_pointer();
+
     pointer.set_event_iterator(&event_iter);
     pointer.set_cursor(0, Some(&cursor_surface), 0, 0);
-    surface.commit();
+    background_surface.commit();
     event_iter.sync_roundtrip().unwrap();
     loop {
         for event in &mut event_iter {
@@ -273,7 +258,7 @@ fn main_background_loop(compositor: &WlCompositor, shell: &WlShell, shm: &WlShm,
                     match wayland_event {
                         WaylandProtocolEvent::WlPointer(id, pointer_event) => {
                             match pointer_event {
-                                WlPointerEvent::Enter(serial, surface, surface_x, surface_y) => {
+                                WlPointerEvent::Enter(serial, background_surface, surface_x, surface_y) => {
                                     pointer.set_cursor(0, Some(&cursor_surface), 0, 0);
                                 },
                                 _ => {
@@ -288,4 +273,12 @@ fn main_background_loop(compositor: &WlCompositor, shell: &WlShell, shm: &WlShm,
         }
         event_iter.dispatch().expect("Connection with the compositor was lost.");
     }
+}
+
+
+#[test]
+fn test_weird_math() {
+    assert_eq!(weird_math(10, 254), 9);
+    assert_eq!(weird_math(2, 255), 2);
+    assert_eq!(weird_math(255, 500), 500);
 }
