@@ -96,7 +96,7 @@ fn main() {
     main_background_loop(background_surface, cursor_surface, evt_iter, &env);
 }
 
-fn weird_math(num: u8, third_num: u32) -> u8 {
+fn rgba_conversion(num: u8, third_num: u32) -> u8 {
     let big_num = num as u32;
     ((big_num * third_num) / 255) as u8
 }
@@ -159,9 +159,9 @@ fn generate_image_background(path: &str, background_surface: &mut WlSurface,
         let pixels = image.enumerate_pixels_mut();
         for (_x, _y, pixel) in pixels {
             let alpha = pixel[3] as u32;
-            pixel[0] = weird_math(pixel[0], alpha);
-            pixel[1] = weird_math(pixel[1], alpha);
-            pixel[2] = weird_math(pixel[2], alpha);
+            pixel[0] = rgba_conversion(pixel[0], alpha);
+            pixel[1] = rgba_conversion(pixel[1], alpha);
+            pixel[2] = rgba_conversion(pixel[2], alpha);
 
             let tmp = pixel[2];
             pixel[2] = pixel[0];
@@ -174,15 +174,12 @@ fn generate_image_background(path: &str, background_surface: &mut WlSurface,
     tmp.write_all(&*vec).unwrap();
 
 
-    // TODO I want this shit outta here
     let shm = env.shm.as_ref().map(|o| &o.0).unwrap();
 
     // Create the surface we are going to write into
 
     let pool = shm.create_pool(tmp.as_raw_fd(), size as i32);
     let background_buffer = pool.create_buffer(0, width as i32, height as i32, stride as i32, WlShmFormat::Argb8888);
-    // Tell Way Cooler not to put this in the tree, treat as background
-    // TODO Make this less hacky by actually giving way cooler access to this thing...
 
     // Attach the buffer to the surface
     background_surface.attach(Some(&background_buffer), 0, 0);
@@ -218,9 +215,9 @@ fn cursor_surface(cursor_path: &str, cursor_surface: &mut WlSurface, env: &Wayla
             let pixels = image.enumerate_pixels_mut();
             for (_x, _y, pixel) in pixels {
                 let alpha = pixel[3] as u32;
-                pixel[0] = weird_math(pixel[0], alpha);
-                pixel[1] = weird_math(pixel[1], alpha);
-                pixel[2] = weird_math(pixel[2], alpha);
+                pixel[0] = rgba_conversion(pixel[0], alpha);
+                pixel[1] = rgba_conversion(pixel[1], alpha);
+                pixel[2] = rgba_conversion(pixel[2], alpha);
 
                 let tmp = pixel[2];
                 pixel[2] = pixel[0];
@@ -278,8 +275,8 @@ fn main_background_loop(background_surface: WlSurface, cursor_surface: WlSurface
 
 
 #[test]
-fn test_weird_math() {
-    assert_eq!(weird_math(10, 254), 9);
-    assert_eq!(weird_math(2, 255), 2);
-    assert_eq!(weird_math(255, 500), 500);
+fn test_rgba_conversion() {
+    assert_eq!(rgba_conversion(10, 254), 9);
+    assert_eq!(rgba_conversion(2, 255), 2);
+    assert_eq!(rgba_conversion(255, 500), 500);
 }
