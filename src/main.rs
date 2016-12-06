@@ -62,13 +62,13 @@ impl Color {
 
 fn main() {
     let args: Vec<_> = env::args().collect();
-    if args.len() < 3 {
+    if args.len() < 2 {
         println!("Please supply either a file path or a color (written in hex)");
         println!("Please also supply a path to a cursor image");
         exit(1);
     }
     let input = &args[1];
-    let cursor_path = &args[2];
+    let cursor_path = args.get(2);
 
     let (display, iter) = get_display()
         .expect("Unable to connect to a wayland compositor");
@@ -92,7 +92,7 @@ fn main() {
     background_surface.commit();
     background_surface.set_buffer_scale(1);
     let mut cursor_surface = compositor.create_surface();
-    let _cursor_buffer = self::cursor_surface(cursor_path.as_str(), &mut cursor_surface, &env);
+    let _cursor_buffer = self::cursor_surface(cursor_path, &mut cursor_surface, &env);
     main_background_loop(background_surface, cursor_surface, evt_iter, &env);
 }
 
@@ -187,50 +187,57 @@ fn generate_image_background(path: &str, background_surface: &mut WlSurface,
     Ok(background_buffer)
 }
 
-fn cursor_surface(cursor_path: &str, cursor_surface: &mut WlSurface, env: &WaylandEnv)
+fn cursor_surface(cursor_path: Option<&String>, cursor_surface: &mut WlSurface, env: &WaylandEnv)
                   -> Result<CursorBuffer, ()> {
     let shm = env.shm.as_ref().map(|o| &o.0).unwrap();
 
     let cursor_theme = load_theme(None, 16, shm);
     /* If the theme has a predefined cursor, just use that */
     let cursor_buffer: WlBuffer;
-    if let Some(cursor) = cursor_theme.get_cursor("default") {
-        let cursor_frame_buffer = &*cursor.frame_buffer(0).expect("Couldn't get frame_buffer");
-        cursor_surface.attach(Some(cursor_frame_buffer), 0, 0);
-        ::std::mem::forget(cursor_frame_buffer);
-        return Ok(CursorBuffer::Null)
-    } else {
-        let image = open(cursor_path)
-            .unwrap_or_else(|_| {
-                println!("Could not open \"{:?}\"", cursor_path);
-                panic!("Could not open image file");
-            });
-        let mut image = image.to_rgba();
-        let width = image.width();
-        let height = image.height();
-        let stride = width * 4;
-        let size = stride * height;
-        // TODO Split this into its own function
-        {
-            let pixels = image.enumerate_pixels_mut();
-            for (_x, _y, pixel) in pixels {
-                let alpha = pixel[3] as u32;
-                pixel[0] = rgba_conversion(pixel[0], alpha);
-                pixel[1] = rgba_conversion(pixel[1], alpha);
-                pixel[2] = rgba_conversion(pixel[2], alpha);
-
-                let tmp = pixel[2];
-                pixel[2] = pixel[0];
-                pixel[0] = tmp;
+    match cursor_path {
+        None => {
+            if let Some(cursor) = cursor_theme.get_cursor("default") {
+                let cursor_frame_buffer = &*cursor.frame_buffer(0).expect("Couldn't get frame_buffer");
+                cursor_surface.attach(Some(cursor_frame_buffer), 0, 0);
+                ::std::mem::forget(cursor_frame_buffer);
+                return Ok(CursorBuffer::Null)
+            } else {
+                println!("Could not find system-wide cursor, please supply one on the command line");
+                ::std::process::exit(1);
             }
+        },
+        Some(cursor_path) => {
+            let image = open(cursor_path)
+                .unwrap_or_else(|_| {
+                    println!("Could not open \"{:?}\"", cursor_path);
+                    panic!("Could not open image file");
+                });
+            let mut image = image.to_rgba();
+            let width = image.width();
+            let height = image.height();
+            let stride = width * 4;
+            let size = stride * height;
+            {
+                let pixels = image.enumerate_pixels_mut();
+                for (_x, _y, pixel) in pixels {
+                    let alpha = pixel[3] as u32;
+                    pixel[0] = rgba_conversion(pixel[0], alpha);
+                    pixel[1] = rgba_conversion(pixel[1], alpha);
+                    pixel[2] = rgba_conversion(pixel[2], alpha);
+
+                    let tmp = pixel[2];
+                    pixel[2] = pixel[0];
+                    pixel[0] = tmp;
+                }
+            }
+            let vec = image.into_vec();
+            let mut tmp = tempfile::NamedTempFile::new().expect("Unable to create a tempfile.");
+            tmp.set_len(size as u64).expect("Could not truncate length of file");
+            tmp.write_all(&*vec).unwrap();
+            let pool = shm.create_pool(tmp.as_raw_fd(), size as i32);
+            cursor_buffer = pool.create_buffer(0, width as i32, height as i32, stride as i32, WlShmFormat::Argb8888);
+            cursor_surface.attach(Some(&cursor_buffer), 0, 0);
         }
-        let vec = image.into_vec();
-        let mut tmp = tempfile::NamedTempFile::new().expect("Unable to create a tempfile.");
-        tmp.set_len(size as u64).expect("Could not truncate length of file");
-        tmp.write_all(&*vec).unwrap();
-        let pool = shm.create_pool(tmp.as_raw_fd(), size as i32);
-        cursor_buffer = pool.create_buffer(0, width as i32, height as i32, stride as i32, WlShmFormat::Argb8888);
-        cursor_surface.attach(Some(&cursor_buffer), 0, 0);
     }
     Ok(CursorBuffer::Buf(cursor_buffer))
 }
