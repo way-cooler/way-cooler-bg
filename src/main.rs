@@ -74,7 +74,12 @@ fn main() {
         .expect("Unable to connect to a wayland compositor");
     let (env, evt_iter) = WaylandEnv::init(display, iter);
     let compositor = env.compositor.as_ref().map(|o| &o.0).unwrap();
+    let shell = env.shell.as_ref().map(|o| &o.0).unwrap();
     let mut background_surface = compositor.create_surface();
+    let shell_surface = shell.get_shell_surface(&background_surface);
+    shell_surface.set_class("Background".into());
+    // TODO Actually give it the path or something idk
+    shell_surface.set_title(input.clone());
 
     // We need to hold on to this buffer, this holds the background image!
     let _background_buffer = if let Ok(color) = input.parse::<u32>() {
@@ -83,11 +88,6 @@ fn main() {
     } else {
         generate_image_background(input.as_str(), &mut background_surface, &env)
     }.expect("could not generate image");
-    let shell = env.shell.as_ref().map(|o| &o.0).unwrap();
-    let shell_surface = shell.get_shell_surface(&background_surface);
-    shell_surface.set_class("Background".into());
-    // TODO Actually give it the path or something idk
-    shell_surface.set_title(input.clone());
 
     background_surface.commit();
     background_surface.set_buffer_scale(1);
