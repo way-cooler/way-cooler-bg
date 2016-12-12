@@ -2,6 +2,8 @@
 name = "way-cooler-bg"
 version = "0.1.0"
 authors = ["Timidger <APragmaticPlace@gmail.com>"]
+description = "Background program for Way Cooler"
+license = "MIT"
 
 [dependencies]
 wayland-sys = { version = "^0.6.0", features = ["client", "dlopen"] }
