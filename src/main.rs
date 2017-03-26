@@ -134,7 +134,7 @@ fn get_screen_resolution(con: Connection) -> (i32, i32) {
             println!("{:?}, {:?}", width, height);
             (width as i32, height as i32)
         },
-        _ => panic!("Colud not get resolution of screen")
+        _ => panic!("Could not get resolution of screen")
     }
 }
 
