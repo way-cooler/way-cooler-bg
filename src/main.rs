@@ -149,11 +149,8 @@ fn generate_solid_background(color: Color, background_surface: &mut WlSurface,
     let mut tmp = tempfile::tempfile().ok().expect("Unable to create a tempfile.");
 
     // Calculate how big the buffer needs to be from the output resolution
-    // TODO Get the output size from way cooler somehow...
-    //let resolution = output.get_resolution()
-    //    .expect("Couldn't get output resolution");
-    //let (width, height) = (resolution.w as i32, resolution.h as i32);
-    let width = 16; let height = 9;
+    let dbus_con = Connection::get_private(BusType::Session).unwrap();
+    let (width, height) = get_screen_resolution(dbus_con);
     let size = (width * height) as i32;
 
     // Write in the color coding to the surface
