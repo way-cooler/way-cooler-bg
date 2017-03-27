@@ -5,6 +5,7 @@ extern crate tempfile;
 
 extern crate byteorder;
 extern crate image;
+extern crate dbus;
 
 use std::env;
 use std::process::exit;
@@ -22,6 +23,8 @@ use wayland_client::{EventIterator, Proxy};
 
 use byteorder::{NativeEndian, WriteBytesExt};
 
+use dbus::{Connection, Message, MessageItem, BusType};
+
 wayland_env!(WaylandEnv,
              compositor: WlCompositor,
              shell: WlShell,
@@ -30,6 +33,9 @@ wayland_env!(WaylandEnv,
 );
 
 const CURSOR: &'static [u8; 656] = include_bytes!("../assets/arrow.png");
+
+// DBus wait time
+const DBUS_WAIT_TIME: i32 = 2000;
 
 type BufferResult = Result<WlBuffer, ()>;
 
@@ -89,6 +95,49 @@ fn rgba_conversion(num: u8, third_num: u32) -> u8 {
     ((big_num * third_num) / 255) as u8
 }
 
+fn get_screen_resolution(con: Connection) -> (i32, i32) {
+    let screens_msg = Message::new_method_call("org.way-cooler",
+                                               "/org/way_cooler/Screen",
+                                               "org.way_cooler.Screen",
+                                               "List")
+        .expect("Could not construct message -- is Way Cooler running?");
+    let screen_r = con.send_with_reply_and_block(screens_msg, DBUS_WAIT_TIME)
+        .expect("Could not talk to Way Cooler -- is Way Cooler running?");
+    let screen_r = &screen_r.get_items()[0];
+    let output_id = match screen_r {
+        &MessageItem::Array(ref items, _) => {
+            match items[0] {
+                MessageItem::Str(ref string) => string.clone(),
+                _ => panic!("Array didn't contain output id")
+            }
+        }
+        _ => panic!("Wrong type from Screen")
+    };
+    let res_msg = Message::new_method_call("org.way-cooler",
+                                           "/org/way_cooler/Screen",
+                                           "org.way_cooler.Screen",
+                                           "Resolution")
+        .expect("Could not construct message -- is Way Cooler running?")
+        .append(MessageItem::Str(output_id));
+    let reply: MessageItem = con.send_with_reply_and_block(res_msg, DBUS_WAIT_TIME)
+        .expect("Could not talk to Way Cooler -- is Way Cooler running?")
+        .get1()
+        .expect("Way Cooler returned an unexpected value");
+    match reply {
+        MessageItem::Struct(items) => {
+            let (width, height) = (
+                (&items[0]).inner::<u32>()
+                    .expect("Way Cooler returned an unexpected value"),
+                (&items[1]).inner::<u32>()
+                    .expect("Way Cooler returned an unexpected value")
+            );
+            println!("{:?}, {:?}", width, height);
+            (width as i32, height as i32)
+        },
+        _ => panic!("Could not get resolution of screen")
+    }
+}
+
 /// Given a solid color, writes bytes associated with that color to
 /// a special Wayland surface which is then rendered as a background for Way Cooler.
 fn generate_solid_background(color: Color, background_surface: &mut WlSurface,
@@ -100,11 +149,8 @@ fn generate_solid_background(color: Color, background_surface: &mut WlSurface,
     let mut tmp = tempfile::tempfile().ok().expect("Unable to create a tempfile.");
 
     // Calculate how big the buffer needs to be from the output resolution
-    // TODO Get the output size from way cooler somehow...
-    //let resolution = output.get_resolution()
-    //    .expect("Couldn't get output resolution");
-    //let (width, height) = (resolution.w as i32, resolution.h as i32);
-    let width = 16; let height = 9;
+    let dbus_con = Connection::get_private(BusType::Session).unwrap();
+    let (width, height) = get_screen_resolution(dbus_con);
     let size = (width * height) as i32;
 
     // Write in the color coding to the surface
