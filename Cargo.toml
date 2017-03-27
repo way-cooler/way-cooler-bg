@@ -13,13 +13,4 @@ byteorder = ">= 0.3, < 0.6"
 image = "^0.10.3"
 dbus = "0.5.2"
 
-[dependencies.gtk]
-version = "0.1.0"
-features = ["v3_16"]
-
 # To make this work, gotta compile against the git version, because I'm grabbing gdk-sys not from git...
-
-[replace]
-"glib-sys:0.3.1" = { git = "https://github.com/gtk-rs/sys" }
-"gobject-sys:0.3.1" = { git = "https://github.com/gtk-rs/sys" }
-"cairo-sys-rs:0.3.1" = { git = "https://github.com/gtk-rs/cairo" }
