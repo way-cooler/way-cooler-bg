@@ -56,6 +56,37 @@ impl Color {
     }
 }
 
+pub enum BackgroundMode {
+    /// Scale image to make the shortest dimension (i.e. height or width)
+    /// fit it's container pertaining aspect ratio.
+    Fill,
+
+    /// Scale image width to fit container width pertaining aspect ratio.
+    Fit,
+
+    /// Scale height and width to fit container's. May create distortion.
+    Stretch,
+
+    /// Do not scale image and place to center.
+    Center,
+
+    /// Do not scale image and create repeated image forming tile-pattern.
+    Tile,
+}
+
+impl BackgroundMode {
+    fn from_str(s: &str) -> BackgroundMode {
+         match s {
+            "fill"    => BackgroundMode::Fill,
+            "fit"     => BackgroundMode::Fit,
+            "stretch" => BackgroundMode::Stretch,
+            "center"  => BackgroundMode::Center,
+            "tile"    => BackgroundMode::Tile,
+            _         => BackgroundMode::Fill,
+        }
+    }
+}
+
 fn main() {
     let args: Vec<_> = env::args().collect();
     if args.len() < 1 {
