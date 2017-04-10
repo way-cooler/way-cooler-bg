@@ -14,6 +14,7 @@ use image::{GenericImage, DynamicImage, FilterType};
 use std::mem::transmute;
 use std::os::unix::io::AsRawFd;
 use std::io::Write;
+use std::str::FromStr;
 
 use wayland_client::wayland::get_display;
 use wayland_client::wayland::compositor::{WlCompositor, WlSurface};
@@ -75,15 +76,17 @@ pub enum BackgroundMode {
     Tile,
 }
 
-impl BackgroundMode {
-    fn from_str(s: &str) -> BackgroundMode {
+impl FromStr for BackgroundMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<BackgroundMode, String> {
          match s {
-            "fill"    => BackgroundMode::Fill,
-            "fit"     => BackgroundMode::Fit,
-            "stretch" => BackgroundMode::Stretch,
-            "center"  => BackgroundMode::Center,
-            "tile"    => BackgroundMode::Tile,
-            _         => BackgroundMode::Fill,
+            "fill"    => Ok(BackgroundMode::Fill),
+            "fit"     => Ok(BackgroundMode::Fit),
+            "stretch" => Ok(BackgroundMode::Stretch),
+            "center"  => Ok(BackgroundMode::Center),
+            "tile"    => Ok(BackgroundMode::Tile),
+            _         => Err(String::from_str(s).unwrap()),
         }
     }
 }
