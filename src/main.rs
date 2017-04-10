@@ -10,6 +10,7 @@ extern crate dbus;
 use std::env;
 use std::process::exit;
 use image::{load_from_memory, open};
+use image::{GenericImage, DynamicImage, FilterType};
 use std::mem::transmute;
 use std::os::unix::io::AsRawFd;
 use std::io::Write;
@@ -111,7 +112,12 @@ fn main() {
         let color = Color::from_u32(color);
         generate_solid_background(color, &mut background_surface, &env)
     } else {
-        generate_image_background(input.as_str(), &mut background_surface, &env)
+        let mode = if args.len() >= 3 {
+            BackgroundMode::from_str(&args[2])
+        } else {
+            BackgroundMode::Fill
+        };
+        generate_image_background(input.as_str(), mode, &mut background_surface, &env)
     }.expect("could not generate image");
 
     background_surface.commit();
@@ -206,24 +212,105 @@ fn generate_solid_background(color: Color, background_surface: &mut WlSurface,
 
 /// Given the data from an image, writes it to a special Wayland surface
 /// which is then rendered as a background for Way Cooler.
-fn generate_image_background(path: &str, background_surface: &mut WlSurface,
+fn generate_image_background(path: &str, mode: BackgroundMode, background_surface: &mut WlSurface,
                              env: &WaylandEnv) -> BufferResult {
     // TODO support more formats, split into separate function
-    let image = open(path)
+    let mut image = open(path)
         .unwrap_or_else(|_| {
             println!("Could not open image file \"{:?}\"", path);
             ::std::process::exit(1);
         });
     /*let image = load_from_memory(CURSOR)
         .expect("Could not read cursor data, report to maintainer!");*/
-    let mut image = image.to_rgba();
-    let width = image.width();
-    let height = image.height();
-    let stride = width * 4;
-    let size = stride * height;
+    let mut img_width = image.width();
+    let mut img_height = image.height();
+
+    let dbus_con = Connection::get_private(BusType::Session).unwrap();
+    let resolution = get_screen_resolution(dbus_con);
+    let (scr_width, scr_height) = (resolution.0 as u32, resolution.1 as u32);
+
+    // Mode image processing
+    // The output must be scr_width x scr_height resolution
+    image = match mode {
+        BackgroundMode::Fill    => {
+            // Find fit scale
+            let width_sr: f64  = scr_width as f64 / img_width as f64;
+            let height_sr: f64 = scr_height as f64 / img_height as f64;
+            let scale_ratio: f64 = if width_sr > height_sr {
+                width_sr
+            } else {
+                height_sr
+            };
+            img_width = (scale_ratio * img_width as f64) as u32;
+            img_height = (scale_ratio * img_height as f64) as u32;
+
+            image = image.resize(img_width, img_height, FilterType::Gaussian);
+            image.crop(((img_width as i32 - scr_width as i32) / 2).abs() as u32,
+                ((img_height as i32 - scr_height as i32) / 2).abs() as u32,
+                scr_width,
+                scr_height)
+        },
+        // TODO: Padding background color
+        BackgroundMode::Fit     => {
+            // Find fit scale ratio
+            let width_sr: f64  = scr_width as f64 / img_width as f64;
+            let height_sr: f64 = scr_height as f64 / img_height as f64;
+            let scale_ratio: f64 = if width_sr < height_sr {
+                width_sr
+            } else {
+                height_sr
+            };
+            img_width = (scale_ratio * img_width as f64) as u32;
+            img_height = (scale_ratio * img_height as f64) as u32;
+
+            image = image.resize(img_width, img_height, FilterType::Gaussian);
+
+            let mut imagepad = DynamicImage::new_rgba8(scr_width, scr_height);
+            imagepad.copy_from(&image, 0, ((scr_height - img_height) / 2) as u32);
+
+            imagepad
+        },
+        BackgroundMode::Stretch => {
+            image.resize_exact(scr_width, scr_height, FilterType::Gaussian)
+        },
+        // TODO: Padding background color
+        BackgroundMode::Center  => {
+            // FIXME: How if image bigger than screen size?
+            let mut imagepad = DynamicImage::new_rgba8(scr_width, scr_height);
+            imagepad.copy_from(&image, ((scr_width - img_width) / 2) as u32, ((scr_height - img_height) / 2) as u32);
+
+            imagepad
+        },
+        BackgroundMode::Tile    => {
+            // TODO: Create image buffer (lowest multiple of its dimension)
+            // .. which bigger than container
+            // Iterate pixel on buffer
+            // Crop image
+            let repeat_x_count: u32 = ((scr_width / img_width) as f64).ceil() as u32 + 1;
+            let repeat_y_count: u32 = ((scr_height / img_height) as f64).ceil() as u32 + 1;
+            println!("Image w: {}, h: {}", img_width, img_height);
+            println!("Repeat x: {}, y: {}", repeat_x_count, repeat_y_count);
+
+            let mut imagepad = DynamicImage::new_rgba8(img_width * repeat_x_count, img_height * repeat_y_count);
+            for x in 0..repeat_x_count {
+                for y in 0..repeat_y_count {
+                    imagepad.copy_from(&image, x * img_width, y * img_height);
+                }
+            }
+            imagepad.crop(0, 0, scr_width, scr_height)
+        },
+    };
+
+    img_height = scr_height;
+    img_width = scr_width;
+    let img_stride = img_width * 4;
+    let img_size = img_stride * img_height;
+
+    let mut image_rgba = image.to_rgba();
+
     // TODO Split this into its own function
     {
-        let pixels = image.enumerate_pixels_mut();
+        let pixels = image_rgba.enumerate_pixels_mut();
         for (_x, _y, pixel) in pixels {
             let alpha = pixel[3] as u32;
             pixel[0] = rgba_conversion(pixel[0], alpha);
@@ -235,22 +322,21 @@ fn generate_image_background(path: &str, background_surface: &mut WlSurface,
             pixel[0] = tmp;
         }
     }
-    let vec = image.into_vec();
-    let mut tmp = tempfile::NamedTempFile::new().expect("Unable to create a tempfile.");
-    tmp.set_len(size as u64).expect("Could not truncate length of file");
-    tmp.write_all(&*vec).unwrap();
 
+    let vec = image_rgba.into_vec();
+    let mut tmp = tempfile::NamedTempFile::new().expect("Unable to create a tempfile.");
+    tmp.set_len(img_size as u64).expect("Could not truncate length of file");
+    tmp.write_all(&*vec).unwrap();
 
     let shm = env.shm.as_ref().map(|o| &o.0).unwrap();
 
     // Create the surface we are going to write into
-
-    let pool = shm.create_pool(tmp.as_raw_fd(), size as i32);
-    let background_buffer = pool.create_buffer(0, width as i32, height as i32, stride as i32, WlShmFormat::Argb8888);
+    let pool = shm.create_pool(tmp.as_raw_fd(), img_size as i32);
+    let background_buffer = pool.create_buffer(0, scr_width as i32, scr_height as i32, img_stride as i32, WlShmFormat::Argb8888);
 
     // Attach the buffer to the surface
     background_surface.attach(Some(&background_buffer), 0, 0);
-    background_surface.damage(0, 0, width as i32, height as i32);
+    background_surface.damage(0, 0, scr_width as i32, scr_height as i32);
     Ok(background_buffer)
 }
 
