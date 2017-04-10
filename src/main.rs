@@ -214,23 +214,23 @@ fn generate_solid_background(color: Color, background_surface: &mut WlSurface,
 fn generate_image_background(path: &str, mode: BackgroundMode, background_surface: &mut WlSurface,
                              env: &WaylandEnv) -> BufferResult {
     // TODO support more formats, split into separate function
-    let mut image = open(path)
+    let image = open(path)
         .unwrap_or_else(|_| {
             println!("Could not open image file \"{:?}\"", path);
             ::std::process::exit(1);
         });
     /*let image = load_from_memory(CURSOR)
         .expect("Could not read cursor data, report to maintainer!");*/
-    let mut img_width = image.width();
-    let mut img_height = image.height();
-
     let dbus_con = Connection::get_private(BusType::Session).unwrap();
     let resolution = get_screen_resolution(dbus_con);
     let (scr_width, scr_height) = (resolution.0 as u32, resolution.1 as u32);
 
+    let img_width = image.width();
+    let img_height = image.height();
+
     // Mode image processing
     // The output must be scr_width x scr_height resolution
-    image = match mode {
+    let image = match mode {
         BackgroundMode::Fill    => {
             // Find fit scale
             let width_sr: f64  = scr_width as f64 / img_width as f64;
@@ -240,10 +240,10 @@ fn generate_image_background(path: &str, mode: BackgroundMode, background_surfac
             } else {
                 height_sr
             };
-            img_width = (scale_ratio * img_width as f64) as u32;
-            img_height = (scale_ratio * img_height as f64) as u32;
+            let img_width = (scale_ratio * img_width as f64) as u32;
+            let img_height = (scale_ratio * img_height as f64) as u32;
 
-            image = image.resize(img_width, img_height, FilterType::Gaussian);
+            let mut image = image.resize(img_width, img_height, FilterType::Gaussian);
             image.crop(((img_width as i32 - scr_width as i32) / 2).abs() as u32,
                 ((img_height as i32 - scr_height as i32) / 2).abs() as u32,
                 scr_width,
@@ -259,10 +259,10 @@ fn generate_image_background(path: &str, mode: BackgroundMode, background_surfac
             } else {
                 height_sr
             };
-            img_width = (scale_ratio * img_width as f64) as u32;
-            img_height = (scale_ratio * img_height as f64) as u32;
+            let img_width = (scale_ratio * img_width as f64) as u32;
+            let img_height = (scale_ratio * img_height as f64) as u32;
 
-            image = image.resize(img_width, img_height, FilterType::Gaussian);
+            let image = image.resize(img_width, img_height, FilterType::Gaussian);
 
             let mut imagepad = DynamicImage::new_rgba8(scr_width, scr_height);
             imagepad.copy_from(&image, 0, ((scr_height - img_height) / 2) as u32);
@@ -296,8 +296,8 @@ fn generate_image_background(path: &str, mode: BackgroundMode, background_surfac
         },
     };
 
-    img_height = scr_height;
-    img_width = scr_width;
+    let img_height = scr_height;
+    let img_width = scr_width;
     let img_stride = img_width * 4;
     let img_size = img_stride * img_height;
 
