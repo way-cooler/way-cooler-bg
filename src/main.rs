@@ -112,11 +112,7 @@ fn main() {
         let color = Color::from_u32(color);
         generate_solid_background(color, &mut background_surface, &env)
     } else {
-        let mode = if args.len() >= 3 {
-            BackgroundMode::from_str(&args[2])
-        } else {
-            BackgroundMode::Fill
-        };
+        let mode = BackgroundMode::from_str(if args.len() >= 3 { &args[2] } else { "" });
         generate_image_background(input.as_str(), mode, &mut background_surface, &env)
     }.expect("could not generate image");
 
