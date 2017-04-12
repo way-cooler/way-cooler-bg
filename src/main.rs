@@ -284,10 +284,8 @@ fn generate_image_background(path: &str, mode: BackgroundMode, background_surfac
             imagepad
         },
         BackgroundMode::Tile    => {
-            let repeat_x_count: u32 = ((scr_width / img_width) as f64).ceil() as u32 + 1;
-            let repeat_y_count: u32 = ((scr_height / img_height) as f64).ceil() as u32 + 1;
-            println!("Image w: {}, h: {}", img_width, img_height);
-            println!("Repeat x: {}, y: {}", repeat_x_count, repeat_y_count);
+            let repeat_x_count: u32 = (scr_width as f64 / img_width as f64).ceil() as u32;
+            let repeat_y_count: u32 = (scr_height as f64 / img_height as f64).ceil() as u32;
 
             let mut imagepad = DynamicImage::new_rgba8(img_width * repeat_x_count, img_height * repeat_y_count);
             for x in 0..repeat_x_count {
