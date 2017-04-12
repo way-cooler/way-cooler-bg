@@ -79,7 +79,7 @@ impl FromStr for BackgroundMode {
     type Err = String;
 
     fn from_str(s: &str) -> Result<BackgroundMode, String> {
-         match s {
+        match s {
             "fill"    => Ok(BackgroundMode::Fill),
             "fit"     => Ok(BackgroundMode::Fit),
             "stretch" => Ok(BackgroundMode::Stretch),
