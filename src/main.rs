@@ -9,8 +9,7 @@ extern crate dbus;
 
 use std::env;
 use std::process::exit;
-use image::{load_from_memory, open};
-use image::{GenericImage, DynamicImage, FilterType};
+use image::{GenericImage, DynamicImage, FilterType, load_from_memory, open};
 use std::mem::transmute;
 use std::os::unix::io::AsRawFd;
 use std::io::Write;
