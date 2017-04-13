@@ -6,6 +6,7 @@ extern crate tempfile;
 extern crate byteorder;
 extern crate image;
 extern crate dbus;
+extern crate clap;
 
 use std::env;
 use std::process::exit;
@@ -22,6 +23,7 @@ use wayland_client::wayland::seat::{WlSeat, WlPointerEvent};
 use wayland_client::{EventIterator, Proxy};
 
 use byteorder::{NativeEndian, WriteBytesExt};
+use clap::{Arg, App};
 use image::{GenericImage, DynamicImage, FilterType, load_from_memory, open};
 use dbus::{Connection, Message, MessageItem, BusType};
 
@@ -90,12 +92,50 @@ impl FromStr for BackgroundMode {
 }
 
 fn main() {
-    let args: Vec<_> = env::args().collect();
-    if args.len() < 1 {
-        println!("Please supply either a file path or a color (written in hex)");
-        exit(1);
-    }
-    let input = &args[1];
+    let matches = App::new("WayCooler Background Service")
+        .version("0.1.0")
+        .author("Timidger <APragmaticPlace@gmail.com>")
+        .about("Service which manage and provide background to WayCooler window manager.")
+        .arg(Arg::with_name("color")
+            .short("c")
+            .long("color")
+            .value_name("HEX")
+            .help("Six digit hexa RGB code to render color background e.g. 'ffffff'")
+            .required_unless("image"))
+        .arg(Arg::with_name("image")
+            .short("f")
+            .long("image")
+            .value_name("FILE")
+            .help("Path to background image (PNG, JPG, BMP, GIF)")
+            .required_unless("color"))
+        .arg(Arg::with_name("mode")
+            .short("m")
+            .long("mode")
+            .value_name("BG_MODE")
+            .help("Mode affecting image render on screen (fill, fit, stretch, tile)")
+            .requires("image"))
+        .get_matches();
+
+    let color: Color = if let Some(color) = matches.value_of("color") {
+        let color = u32::from_str_radix(color, 16).unwrap();
+        Color::from_u32(color)
+    } else {
+        let color = u32::from_str_radix("333333", 16).unwrap();
+        Color::from_u32(color)
+    };
+
+    let (image, mode) = if let Some(image) = matches.value_of("image") {
+        let mode = if let Some(mode) = matches.value_of("mode") {
+            mode.parse::<BackgroundMode>()
+                .expect("Invalid background mode")
+        } else {
+            BackgroundMode::Fill
+        };
+
+        (image.to_string(), mode)
+    } else {
+        ("".to_string(), BackgroundMode::Fill)
+    };
 
     let (display, iter) = get_display()
         .expect("Unable to connect to a wayland compositor");
@@ -105,20 +145,16 @@ fn main() {
     let mut background_surface = compositor.create_surface();
     let shell_surface = shell.get_shell_surface(&background_surface);
     shell_surface.set_class("Background".into());
-    // TODO Actually give it the path or something idk
-    shell_surface.set_title(input.clone());
 
-    // We need to hold on to this buffer, this holds the background image!
-    let _background_buffer = if let Ok(color) = input.parse::<u32>() {
-        let color = Color::from_u32(color);
+    let _background_buffer = if image.is_empty() {
+        shell_surface.set_title(format!("Background Color: {}", color.as_u32()));
+
         generate_solid_background(color, &mut background_surface, &env)
     } else {
-        let mode = if args.len() >= 3 {
-            args[2].parse::<BackgroundMode>().expect("Invalid background mode")
-        } else {
-            BackgroundMode::Fill
-        };
-        generate_image_background(input.as_str(), mode, &mut background_surface, &env)
+        // TODO Actually give it the path or something idk
+        shell_surface.set_title(format!("Background Image: {}", image));
+
+        generate_image_background(image.as_ref(), mode, &mut background_surface, &env)
     }.expect("could not generate image");
 
     background_surface.commit();
