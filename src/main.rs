@@ -9,7 +9,6 @@ extern crate dbus;
 
 use std::env;
 use std::process::exit;
-use image::{GenericImage, DynamicImage, FilterType, load_from_memory, open};
 use std::mem::transmute;
 use std::os::unix::io::AsRawFd;
 use std::io::Write;
@@ -23,7 +22,7 @@ use wayland_client::wayland::seat::{WlSeat, WlPointerEvent};
 use wayland_client::{EventIterator, Proxy};
 
 use byteorder::{NativeEndian, WriteBytesExt};
-
+use image::{GenericImage, DynamicImage, FilterType, load_from_memory, open};
 use dbus::{Connection, Message, MessageItem, BusType};
 
 wayland_env!(WaylandEnv,
