@@ -25,7 +25,7 @@ use wayland_client::{EventIterator, Proxy};
 
 use byteorder::{NativeEndian, WriteBytesExt};
 use clap::{Arg, App};
-use image::{GenericImage, DynamicImage, FilterType, load_from_memory, open};
+use image::{GenericImage, DynamicImage, Pixel, FilterType, load_from_memory, open};
 use dbus::{Connection, Message, MessageItem, BusType};
 
 wayland_env!(WaylandEnv,
@@ -248,6 +248,20 @@ fn generate_solid_background(color: Color, background_surface: &mut WlSurface,
     Ok(background_buffer)
 }
 
+fn fill_image_base_color(image: DynamicImage, color: Color) -> DynamicImage {
+    let color = image::Rgb::from_channels(color.0[2], color.0[1], color.0[0] , color.0[3]);
+    let buffer = if let DynamicImage::ImageRgb8(mut buffer) = image {
+        for (_, _, p) in buffer.enumerate_pixels_mut() {
+            *p = color;
+        }
+        Ok(buffer)
+    } else {
+        Err("image has wrong variant")
+    }.unwrap();
+
+    DynamicImage::ImageRgb8(buffer)
+}
+
 /// Given the data from an image, writes it to a special Wayland surface
 /// which is then rendered as a background for Way Cooler.
 fn generate_image_background(path: &str, mode: BackgroundMode, color: Color,
@@ -288,7 +302,6 @@ fn generate_image_background(path: &str, mode: BackgroundMode, color: Color,
                 scr_width,
                 scr_height)
         },
-        // TODO: Padding background color
         BackgroundMode::Fit     => {
             // Find fit scale ratio
             let width_sr: f64  = scr_width as f64 / img_width as f64;
@@ -303,7 +316,8 @@ fn generate_image_background(path: &str, mode: BackgroundMode, color: Color,
 
             let image = image.resize(img_width, img_height, FilterType::Gaussian);
 
-            let mut imagepad = DynamicImage::new_rgba8(scr_width, scr_height);
+            let imagepad = DynamicImage::new_rgb8(scr_width, scr_height);
+            let mut imagepad = fill_image_base_color(imagepad, color);
             imagepad.copy_from(&image, 0, ((scr_height - img_height) / 2) as u32);
 
             imagepad
@@ -311,7 +325,6 @@ fn generate_image_background(path: &str, mode: BackgroundMode, color: Color,
         BackgroundMode::Stretch => {
             image.resize_exact(scr_width, scr_height, FilterType::Gaussian)
         },
-        // TODO: Padding background color
         BackgroundMode::Center  => {
             let width_diff: i32 = scr_width as i32 - img_width as i32;
             let height_diff: i32 = scr_height as i32 - img_height as i32;
@@ -322,7 +335,8 @@ fn generate_image_background(path: &str, mode: BackgroundMode, color: Color,
                 min(scr_width, img_width),
                 min(scr_height, img_height));
 
-            let mut imagepad = DynamicImage::new_rgb8(scr_width, scr_height);
+            let imagepad = DynamicImage::new_rgb8(scr_width, scr_height);
+            let mut imagepad = fill_image_base_color(imagepad, color);
 
             let wpad = max(width_diff, 0) / 2;
             let hpad = max(height_diff, 0) / 2;
