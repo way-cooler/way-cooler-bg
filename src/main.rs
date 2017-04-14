@@ -8,8 +8,6 @@ extern crate image;
 extern crate dbus;
 extern crate clap;
 
-use std::env;
-use std::process::exit;
 use std::mem::transmute;
 use std::os::unix::io::AsRawFd;
 use std::io::Write;
