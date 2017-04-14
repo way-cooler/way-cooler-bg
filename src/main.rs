@@ -14,6 +14,7 @@ use std::mem::transmute;
 use std::os::unix::io::AsRawFd;
 use std::io::Write;
 use std::str::FromStr;
+use std::cmp::{min, max};
 
 use wayland_client::wayland::get_display;
 use wayland_client::wayland::compositor::{WlCompositor, WlSurface};
@@ -312,9 +313,20 @@ fn generate_image_background(path: &str, mode: BackgroundMode, color: Color,
         },
         // TODO: Padding background color
         BackgroundMode::Center  => {
-            // FIXME: How if image bigger than screen size?
-            let mut imagepad = DynamicImage::new_rgba8(scr_width, scr_height);
-            imagepad.copy_from(&image, ((scr_width - img_width) / 2) as u32, ((scr_height - img_height) / 2) as u32);
+            let width_diff: i32 = scr_width as i32 - img_width as i32;
+            let height_diff: i32 = scr_height as i32 - img_height as i32;
+
+            let mut image = image;
+            let image = image.sub_image(max(-width_diff, 0) as u32 / 2,
+                max(-height_diff, 0) as u32 / 2,
+                min(scr_width, img_width),
+                min(scr_height, img_height));
+
+            let mut imagepad = DynamicImage::new_rgb8(scr_width, scr_height);
+
+            let wpad = max(width_diff, 0) / 2;
+            let hpad = max(height_diff, 0) / 2;
+            imagepad.copy_from(&image, wpad as u32, hpad as u32);
 
             imagepad
         },
