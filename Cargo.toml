@@ -12,5 +12,6 @@ tempfile = "2.1"
 byteorder = ">= 0.3, < 0.6"
 image = "^0.10.3"
 dbus = "0.5.2"
+clap = "2.23.2"
 
 # To make this work, gotta compile against the git version, because I'm grabbing gdk-sys not from git...
