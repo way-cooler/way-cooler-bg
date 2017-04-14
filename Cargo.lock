@@ -1,6 +1,6 @@
 [root]
 name = "way-cooler-bg"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "byteorder 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.23.2 (registry+https://github.com/rust-lang/crates.io-index)",
