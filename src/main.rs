@@ -154,7 +154,7 @@ fn main() {
         // TODO Actually give it the path or something idk
         shell_surface.set_title(format!("Background Image: {}", image));
 
-        generate_image_background(image.as_ref(), mode, &mut background_surface, &env)
+        generate_image_background(image.as_ref(), mode, color, &mut background_surface, &env)
     }.expect("could not generate image");
 
     background_surface.commit();
@@ -249,8 +249,8 @@ fn generate_solid_background(color: Color, background_surface: &mut WlSurface,
 
 /// Given the data from an image, writes it to a special Wayland surface
 /// which is then rendered as a background for Way Cooler.
-fn generate_image_background(path: &str, mode: BackgroundMode, background_surface: &mut WlSurface,
-                             env: &WaylandEnv) -> BufferResult {
+fn generate_image_background(path: &str, mode: BackgroundMode, color: Color,
+                             background_surface: &mut WlSurface, env: &WaylandEnv) -> BufferResult {
     // TODO support more formats, split into separate function
     let image = open(path)
         .unwrap_or_else(|_| {
