@@ -204,7 +204,6 @@ fn get_screen_resolution(con: Connection) -> (i32, i32) {
                 (&items[1]).inner::<u32>()
                     .expect("Way Cooler returned an unexpected value")
             );
-            println!("{:?}, {:?}", width, height);
             (width as i32, height as i32)
         },
         _ => panic!("Could not get resolution of screen")
