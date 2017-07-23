@@ -99,7 +99,8 @@ fn main() {
             .short("c")
             .long("color")
             .value_name("HEX")
-            .help("Six digit hexa RGB code to render color background e.g. 'ffffff'")
+            .help("Six digit hexa RGB code to render color background e.g. 'ffffff'
+                  NOTE: No preceding '#' or '0x'")
             .required_unless("image"))
         .arg(Arg::with_name("image")
             .short("f")
@@ -116,8 +117,13 @@ fn main() {
         .get_matches();
 
     let color: Color = if let Some(color) = matches.value_of("color") {
-        let color = u32::from_str_radix(color, 16).unwrap();
-        Color::from_u32(color)
+        match color.parse::<u32>() {
+            Ok(c) => Color::from_u32(c),
+            Err(_) => {
+                let c = u32::from_str_radix(color, 16).unwrap();
+                Color::from_u32(c)
+            }
+        }
     } else {
         let color = u32::from_str_radix("333333", 16).unwrap();
         Color::from_u32(color)
