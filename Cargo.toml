@@ -1,6 +1,6 @@
 [package]
 name = "way-cooler-bg"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Timidger <APragmaticPlace@gmail.com>"]
 description = "Background program for Way Cooler"
 repository = "https://github.com/way-cooler/way-cooler-bg"
