@@ -31,10 +31,6 @@ impl Color {
         (self.red, self.green, self.blue, self.alpha)
     }
 
-    pub fn from_u8s(red: u8, green: u8, blue: u8) -> Self {
-        Color::solid_color(red, green, blue)
-    }
-
     /// To a u32, represented as in RGBA format
     pub fn to_u32(self) -> u32 {
         let values = [self.red, self.green, self.blue, self.alpha];
