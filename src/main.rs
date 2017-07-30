@@ -8,6 +8,9 @@ extern crate image;
 extern crate dbus;
 extern crate clap;
 
+mod color;
+use color::Color;
+
 use std::mem::transmute;
 use std::os::unix::io::AsRawFd;
 use std::io::Write;
@@ -39,23 +42,6 @@ const CURSOR: &'static [u8; 656] = include_bytes!("../assets/arrow.png");
 const DBUS_WAIT_TIME: i32 = 2000;
 
 type BufferResult = Result<WlBuffer, ()>;
-
-#[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
-/// Holds the bytes to represent a colored background.
-/// To be written into a wayland surface.
-pub struct Color(pub [u8; 4]);
-
-impl Color {
-    /// Generate a new color out of a u32.
-    /// E.G: 0xFFFFFF
-    pub fn from_u32(color: u32) -> Self {
-        unsafe { Color(transmute(color)) }
-    }
-
-    pub fn as_u32(&self) -> u32 {
-        unsafe { transmute(self.0)}
-    }
-}
 
 pub enum BackgroundMode {
     /// Scale image to make the shortest dimension (i.e. height or width)
@@ -118,15 +104,15 @@ fn main() {
 
     let color: Color = if let Some(color) = matches.value_of("color") {
         match color.parse::<u32>() {
-            Ok(c) => Color::from_u32(c),
+            Ok(c) => c.into(),
             Err(_) => {
                 let c = u32::from_str_radix(color, 16).unwrap();
-                Color::from_u32(c)
+                c.into()
             }
         }
     } else {
         let color = u32::from_str_radix("333333", 16).unwrap();
-        Color::from_u32(color)
+        color.into()
     };
 
     let (image, mode) = if let Some(image) = matches.value_of("image") {
@@ -152,7 +138,7 @@ fn main() {
     shell_surface.set_class("Background".into());
 
     let _background_buffer = if image.is_empty() {
-        shell_surface.set_title(format!("Background Color: {}", color.as_u32()));
+        shell_surface.set_title(format!("Background Color: {}", color.to_u32()));
 
         generate_solid_background(color, &mut background_surface, &env)
     } else {
@@ -234,7 +220,7 @@ fn generate_solid_background(color: Color, background_surface: &mut WlSurface,
     // Write in the color coding to the surface
     for _ in 0..size {
         unsafe {
-            tmp.write_u32::<NativeEndian>(transmute(color.0))
+            tmp.write_u32::<NativeEndian>(transmute(color.to_u32()))
                 .expect("Could not write to file")
         }
     }
@@ -252,7 +238,8 @@ fn generate_solid_background(color: Color, background_surface: &mut WlSurface,
 }
 
 fn fill_image_base_color(image: DynamicImage, color: Color) -> DynamicImage {
-    let color = image::Rgb::from_channels(color.0[2], color.0[1], color.0[0] , color.0[3]);
+    let color = color.to_u8s();
+    let color = image::Rgb::from_channels(color.2, color.1, color.0 , color.3);
     let buffer = if let DynamicImage::ImageRgb8(mut buffer) = image {
         for (_, _, p) in buffer.enumerate_pixels_mut() {
             *p = color;
