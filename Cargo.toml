@@ -5,6 +5,7 @@ authors = ["Timidger <APragmaticPlace@gmail.com>"]
 description = "Background program for Way Cooler"
 repository = "https://github.com/way-cooler/way-cooler-bg"
 license = "MIT"
+build = "build.rs"
 
 [dependencies]
 wayland-sys = { version = "^0.6.0", features = ["client", "dlopen"] }
@@ -15,4 +16,5 @@ image = "^0.10.3"
 dbus = "0.5.2"
 clap = "2.23.2"
 
-# To make this work, gotta compile against the git version, because I'm grabbing gdk-sys not from git...
+[build-dependencies]
+wayland-scanner = { version = "0.9.1" }
