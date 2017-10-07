@@ -116,14 +116,12 @@ fn main() {
             .long("color")
             .value_name("HEX")
             .help("Six digit hexa RGB code to render color background e.g. 'ffffff'
-                  NOTE: No preceding '#' or '0x'")
-            .required_unless("image"))
+                  NOTE: No preceding '#' or '0x'"))
         .arg(Arg::with_name("image")
             .short("f")
             .long("image")
             .value_name("FILE")
-            .help("Path to background image (PNG, JPG, BMP, GIF)")
-            .required_unless("color"))
+            .help("Path to background image (PNG, JPG, BMP, GIF)"))
         .arg(Arg::with_name("mode")
             .short("m")
             .long("mode")
@@ -131,31 +129,24 @@ fn main() {
             .help("Mode affecting image render on screen (fill, fit, stretch, tile)")
             .requires("image"))
         .get_matches();
-
-    let color: Color = if let Some(color) = matches.value_of("color") {
-        match color.parse::<u32>() {
-            Ok(c) => c.into(),
-            Err(_) => {
-                let c = u32::from_str_radix(color, 16).unwrap();
-                c.into()
-            }
+    let default_color = u32::from_str_radix("333333", 16).unwrap().into();
+    let (color, mut image) = match (matches.value_of("color"), matches.value_of("image")) {
+        (None, None) => (default_color, Some(("".into(), BackgroundMode::Fill))),
+        (_, Some(image)) => {
+            let mode = matches.value_of("mode")
+                .map(|mode| mode.parse::<BackgroundMode>().expect("Invalid background mode"))
+                .unwrap_or(BackgroundMode::Fill);
+            (default_color, Some((image.to_string(), mode)))
+        },
+        (Some(color), None) => {
+            let color: Color = color.parse::<u32>()
+                .map(|c| c.into())
+                .unwrap_or_else(|_| {
+                    let c = u32::from_str_radix(color, 16).expect("Could not parse color");
+                    c.into()
+                });
+            (color, None)
         }
-    } else {
-        let color = u32::from_str_radix("333333", 16).unwrap();
-        color.into()
-    };
-
-    let (image, mode) = if let Some(image) = matches.value_of("image") {
-        let mode = if let Some(mode) = matches.value_of("mode") {
-            mode.parse::<BackgroundMode>()
-                .expect("Invalid background mode")
-        } else {
-            BackgroundMode::Fill
-        };
-
-        (image.to_string(), mode)
-    } else {
-        ("".to_string(), BackgroundMode::Fill)
     };
 
     let (display, mut event_queue) = wayland_client::default_connect()
@@ -202,20 +193,27 @@ fn main() {
         shell_surface.set_class("Background".into());
         shell_surface.set_fullscreen(FullscreenMethod::Default, 0, Some(&output));
         shell_surface.set_maximized(Some(&output));
-        let _background_buffer = if image.is_empty() {
-            shell_surface.set_title(format!("Background Color: {}", color.to_u32()));
+        match image {
+            None => {
+                shell_surface.set_title(format!("Background Color: {}", color.to_u32()));
 
-            generate_solid_background(color, resolution, &mut event_queue, &mut background_surface, env_id)
-        } else {
-            shell_surface.set_title(format!("Background Image: {}", image));
+                generate_solid_background(color, resolution, &mut event_queue, &mut background_surface, env_id)
+            },
+            Some((ref mut image, mode)) => {
+                if image.is_empty() {
+                    shell_surface.set_title("Official background".into());
+                } else {
+                    shell_surface.set_title(format!("Background Image: {}", image));
+                }
 
-            generate_image_background(image.as_ref(),
-                                      resolution,
-                                      &mut event_queue,
-                                      mode,
-                                      color,
-                                      &mut background_surface,
-                                      env_id)
+                generate_image_background(image.as_ref(),
+                                          resolution,
+                                          &mut event_queue,
+                                          mode,
+                                          color,
+                                          &mut background_surface,
+                                          env_id)
+            }
         }.expect("could not generate image");
 
         background_surface.commit();
@@ -308,8 +306,10 @@ fn generate_image_background(path: &str,
     let env = state.get_handler::<EnvHandler<WaylandEnv>>(env_id);
     let image = open(path)
         .unwrap_or_else(|_| {
-            println!("Could not open image file \"{:?}\"", path);
-            ::std::process::exit(1);
+            load_from_memory(include_bytes!("../assets/official-background.png"))
+                .expect("Could not read in official background image")
+            //println!("Could not open image file \"{:?}\"", path);
+            //::std::process::exit(1);
         });
     let (scr_width, scr_height) = (resolution.w as u32, resolution.h as u32);
 
