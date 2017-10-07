@@ -5,11 +5,12 @@ extern crate tempfile;
 
 extern crate byteorder;
 extern crate image;
-extern crate dbus;
 extern crate clap;
 #[macro_use] mod macros;
 
 mod color;
+mod resolution;
+use resolution::Resolution;
 use color::Color;
 
 use std::mem::transmute;
@@ -32,7 +33,6 @@ use wl_shm::Format as WlShmFormat;
 use byteorder::{NativeEndian, WriteBytesExt};
 use clap::{Arg, App};
 use image::{GenericImage, DynamicImage, Pixel, FilterType, load_from_memory, open};
-use dbus::{Connection, Message, MessageItem, BusType};
 
 wayland_env!(WaylandEnv,
              compositor: wl_compositor::WlCompositor,
@@ -68,9 +68,6 @@ mod generated {
 use generated::client::desktop_shell::DesktopShell;
 
 const CURSOR: &'static [u8; 656] = include_bytes!("../assets/arrow.png");
-
-// DBus wait time
-const DBUS_WAIT_TIME: i32 = 2000;
 
 type BufferResult = Result<wl_buffer::WlBuffer, ()>;
 
@@ -177,6 +174,16 @@ fn main() {
     };
     let output = get_wayland!(env_id, &registry, &mut event_queue, WlOutput, "wl_output").unwrap();
 
+    // Set up `Resolution`, which ensures the background is the same
+    // size as the output, even if it resizes.
+    let mut resolution = Resolution::new();
+    let resolution_id = event_queue.add_handler(resolution);
+    event_queue.register::<_, Resolution>(&output, resolution_id);
+    // Dispatch so that the resolution is properly set in the handler.
+    event_queue.dispatch().expect("Could not dispatch resolution");
+
+    resolution = { *event_queue.state().get_handler(resolution_id) };
+
     let shell = get_wayland!(env_id, &registry, &mut event_queue, WlShell, "wl_shell").unwrap();
     let compositor = get_wayland!(env_id, &registry, &mut event_queue, WlCompositor, "wl_compositor").unwrap();
     let seat = get_wayland!(env_id, &registry, &mut event_queue, WlSeat, "wl_seat").unwrap();
@@ -190,12 +197,11 @@ fn main() {
     let _background_buffer = if image.is_empty() {
         shell_surface.set_title(format!("Background Color: {}", color.to_u32()));
 
-        generate_solid_background(color, &mut event_queue, &mut background_surface, env_id)
+        generate_solid_background(color, resolution, &mut event_queue, &mut background_surface, env_id)
     } else {
-        // TODO Actually give it the path or something idk
         shell_surface.set_title(format!("Background Image: {}", image));
 
-        generate_image_background(image.as_ref(), &mut event_queue, mode, color, &mut background_surface, env_id)
+        generate_image_background(image.as_ref(), resolution, &mut event_queue, mode, color, &mut background_surface, env_id)
     }.expect("could not generate image");
 
     background_surface.commit();
@@ -217,51 +223,10 @@ fn rgba_conversion(num: u8, third_num: u32) -> u8 {
     ((big_num * third_num) / 255) as u8
 }
 
-fn get_screen_resolution(con: Connection) -> (i32, i32) {
-    let screens_msg = Message::new_method_call("org.way-cooler",
-                                               "/org/way_cooler/Screen",
-                                               "org.way_cooler.Screen",
-                                               "List")
-        .expect("Could not construct message -- is Way Cooler running?");
-    let screen_r = con.send_with_reply_and_block(screens_msg, DBUS_WAIT_TIME)
-        .expect("Could not talk to Way Cooler -- is Way Cooler running?");
-    let screen_r = &screen_r.get_items()[0];
-    let output_id = match screen_r {
-        &MessageItem::Array(ref items, _) => {
-            match items[1] {
-                MessageItem::Str(ref string) => string.clone(),
-                _ => panic!("Array didn't contain output id")
-            }
-        }
-        _ => panic!("Wrong type from Screen")
-    };
-    let res_msg = Message::new_method_call("org.way-cooler",
-                                           "/org/way_cooler/Screen",
-                                           "org.way_cooler.Screen",
-                                           "Resolution")
-        .expect("Could not construct message -- is Way Cooler running?")
-        .append(MessageItem::Str(output_id));
-    let reply: MessageItem = con.send_with_reply_and_block(res_msg, DBUS_WAIT_TIME)
-        .expect("Could not talk to Way Cooler -- is Way Cooler running?")
-        .get1()
-        .expect("Way Cooler returned an unexpected value");
-    match reply {
-        MessageItem::Struct(items) => {
-            let (width, height) = (
-                (&items[0]).inner::<u32>()
-                    .expect("Way Cooler returned an unexpected value"),
-                (&items[1]).inner::<u32>()
-                    .expect("Way Cooler returned an unexpected value")
-            );
-            (width as i32, height as i32)
-        },
-        _ => panic!("Could not get resolution of screen")
-    }
-}
-
 /// Given a solid color, writes bytes associated with that color to
 /// a special Wayland surface which is then rendered as a background for Way Cooler.
 fn generate_solid_background(color: Color,
+                             resolution: Resolution,
                              event_queue: &mut wayland_client::EventQueue,
                              background_surface: &mut wl_surface::WlSurface,
                              env_id: usize) -> BufferResult {
@@ -274,9 +239,7 @@ fn generate_solid_background(color: Color,
     let mut tmp = tempfile::tempfile().ok().expect("Unable to create a tempfile.");
 
     // Calculate how big the buffer needs to be from the output resolution
-    let dbus_con = Connection::get_private(BusType::Session).unwrap();
-    let (width, height) = get_screen_resolution(dbus_con);
-    let size = (width * height) as i32;
+    let size = (resolution.w * resolution.h) as i32;
 
     // Write in the color coding to the surface
     for _ in 0..size {
@@ -290,7 +253,11 @@ fn generate_solid_background(color: Color,
 
     // Create the buffer that is mem-mapped to the temp file descriptor
     let pool = shm.create_pool(tmp.as_raw_fd(), size);
-    let background_buffer = pool.create_buffer(0, width, height, width, WlShmFormat::Argb8888)
+    let background_buffer = pool.create_buffer(0,
+                                               resolution.w as i32,
+                                               resolution.h as i32,
+                                               resolution.w as i32,
+                                               WlShmFormat::Argb8888)
         .expect("Could not create buffer");
     // Tell Way Cooler not to set put this in the tree, treat as background
 
@@ -317,6 +284,7 @@ fn fill_image_base_color(image: DynamicImage, color: Color) -> DynamicImage {
 /// Given the data from an image, writes it to a special Wayland surface
 /// which is then rendered as a background for Way Cooler.
 fn generate_image_background(path: &str,
+                             resolution: Resolution,
                              event_queue: &mut wayland_client::EventQueue,
                              mode: BackgroundMode,
                              color: Color,
@@ -330,12 +298,7 @@ fn generate_image_background(path: &str,
             println!("Could not open image file \"{:?}\"", path);
             ::std::process::exit(1);
         });
-    /*let image = load_from_memory(CURSOR)
-        .expect("Could not read cursor data, report to maintainer!");*/
-    let dbus_con = Connection::get_private(BusType::Session).unwrap();
-    let resolution = get_screen_resolution(dbus_con);
-    let (scr_width, scr_height) = (resolution.0 as u32, resolution.1 as u32);
-    println!("WIDTH: {}, HEIGHT: {}", scr_width, scr_height);
+    let (scr_width, scr_height) = (resolution.w as u32, resolution.h as u32);
 
     let img_width = image.width();
     let img_height = image.height();
@@ -495,45 +458,6 @@ fn cursor_surface(cursor_surface: &mut wl_surface::WlSurface,
     Ok(cursor_buffer)
 }
 
-/*
-/// Main loop for rendering backgrounds.
-/// Need to keep the surface alive, and update it if the
-/// user wants to change the background.
-#[allow(unused_variables)]
-fn main_background_loop(background_surface: WlSurface, cursor_surface: WlSurface, mut event_iter: EventIterator, env: &WaylandEnv) {
-    use wayland_client::wayland::WaylandProtocolEvent;
-    use wayland_client::Event;
-    let seat = env.seat.as_ref().map(|o| &o.0).unwrap();
-    let mut pointer = seat.get_pointer();
-
-    pointer.set_event_iterator(&event_iter);
-    pointer.set_cursor(0, Some(&cursor_surface), 0, 0);
-    background_surface.commit();
-    event_iter.sync_roundtrip().unwrap();
-    loop {
-        for event in &mut event_iter {
-            match event {
-                Event::Wayland(wayland_event) => {
-                    match wayland_event {
-                        WaylandProtocolEvent::WlPointer(id, pointer_event) => {
-                            match pointer_event {
-                                WlPointerEvent::Enter(serial, background_surface, surface_x, surface_y) => {
-                                    pointer.set_cursor(0, Some(&cursor_surface), 0, 0);
-                                },
-                                _ => {
-                                }
-                            }
-                        },
-                        _ => {/* unhandled events */}
-                    }
-                }
-                _ => { /* unhandled events */ }
-            }
-        }
-        event_iter.dispatch().expect("Connection with the compositor was lost.");
-    }
-}
- */
 
 #[test]
 fn test_rgba_conversion() {
