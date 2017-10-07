@@ -20,9 +20,10 @@ use std::str::FromStr;
 use std::cmp::{min, max};
 
 use wayland_client::EnvHandler;
-use wayland_client::protocol::{wl_compositor, wl_shell, wl_shm, wl_surface,
-                               wl_seat, wl_buffer,
+use wayland_client::protocol::{wl_compositor, wl_shell, wl_shell_surface,
+                               wl_shm, wl_surface, wl_seat, wl_buffer,
                                wl_output};
+use wl_shell_surface::FullscreenMethod;
 use wl_output::WlOutput;
 use wl_shell::WlShell;
 use wl_seat::WlSeat;
@@ -71,6 +72,7 @@ const CURSOR: &'static [u8; 656] = include_bytes!("../assets/arrow.png");
 
 type BufferResult = Result<wl_buffer::WlBuffer, ()>;
 
+#[derive(Debug, Clone, Copy)]
 pub enum BackgroundMode {
     /// Scale image to make the shortest dimension (i.e. height or width)
     /// fit it's container pertaining aspect ratio.
@@ -172,42 +174,53 @@ fn main() {
             ::std::process::exit(1);
         }
     };
-    let output = get_wayland!(env_id, &registry, &mut event_queue, WlOutput, "wl_output").unwrap();
+    let outputs = get_all_wayland!(env_id, &registry, &mut event_queue, WlOutput, "wl_output").unwrap();
 
-    // Set up `Resolution`, which ensures the background is the same
-    // size as the output, even if it resizes.
-    let mut resolution = Resolution::new();
-    let resolution_id = event_queue.add_handler(resolution);
-    event_queue.register::<_, Resolution>(&output, resolution_id);
-    // Dispatch so that the resolution is properly set in the handler.
-    event_queue.dispatch().expect("Could not dispatch resolution");
-
-    resolution = { *event_queue.state().get_handler(resolution_id) };
-
+    let seat = get_wayland!(env_id, &registry, &mut event_queue, WlSeat, "wl_seat").unwrap();
+    let pointer = seat.get_pointer().expect("Could not get pointer from seat global");
     let shell = get_wayland!(env_id, &registry, &mut event_queue, WlShell, "wl_shell").unwrap();
     let compositor = get_wayland!(env_id, &registry, &mut event_queue, WlCompositor, "wl_compositor").unwrap();
-    let seat = get_wayland!(env_id, &registry, &mut event_queue, WlSeat, "wl_seat").unwrap();
-    let mut background_surface = compositor.create_surface();
-    desktop_shell.set_background(&output, &background_surface);
-    event_queue.dispatch()
-        .expect("Could not dispatch queue");
-    let pointer = seat.get_pointer().expect("Could not get pointer from seat global");
-    let shell_surface = shell.get_shell_surface(&background_surface);
-    shell_surface.set_class("Background".into());
-    let _background_buffer = if image.is_empty() {
-        shell_surface.set_title(format!("Background Color: {}", color.to_u32()));
-
-        generate_solid_background(color, resolution, &mut event_queue, &mut background_surface, env_id)
-    } else {
-        shell_surface.set_title(format!("Background Image: {}", image));
-
-        generate_image_background(image.as_ref(), resolution, &mut event_queue, mode, color, &mut background_surface, env_id)
-    }.expect("could not generate image");
-
-    background_surface.commit();
-    background_surface.set_buffer_scale(1);
     let mut cursor_surface = compositor.create_surface();
     let _cursor_buffer = self::cursor_surface(&mut cursor_surface, &mut event_queue, env_id);
+    let resolutions: Vec<usize> = outputs.iter()
+        .map(|output| {
+            let res = Resolution::new();
+            let resolution_id = event_queue.add_handler(res);
+            event_queue.register::<_, Resolution>(&output, resolution_id);
+            resolution_id
+        }).collect();
+    for (output, resolution_id) in outputs.into_iter().zip(resolutions) {
+
+        let mut background_surface = compositor.create_surface();
+        desktop_shell.set_background(&output, &background_surface);
+        event_queue.dispatch()
+            .expect("Could not dispatch queue");
+
+        let resolution: Resolution = { *event_queue.state().get_handler(resolution_id) };
+        assert!(resolution.w * resolution.h != 0);
+        let shell_surface = shell.get_shell_surface(&background_surface);
+        shell_surface.set_class("Background".into());
+        shell_surface.set_fullscreen(FullscreenMethod::Default, 0, Some(&output));
+        shell_surface.set_maximized(Some(&output));
+        let _background_buffer = if image.is_empty() {
+            shell_surface.set_title(format!("Background Color: {}", color.to_u32()));
+
+            generate_solid_background(color, resolution, &mut event_queue, &mut background_surface, env_id)
+        } else {
+            shell_surface.set_title(format!("Background Image: {}", image));
+
+            generate_image_background(image.as_ref(),
+                                      resolution,
+                                      &mut event_queue,
+                                      mode,
+                                      color,
+                                      &mut background_surface,
+                                      env_id)
+        }.expect("could not generate image");
+
+        background_surface.commit();
+        background_surface.set_buffer_scale(1);
+    }
     loop {
         display.flush()
             .expect("Could not flush display");
