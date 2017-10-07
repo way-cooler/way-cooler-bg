@@ -1,5 +1,4 @@
 #[macro_use] extern crate wayland_client;
-extern crate wayland_server;
 #[macro_use] extern crate wayland_sys;
 
 extern crate tempfile;
@@ -8,10 +7,9 @@ extern crate byteorder;
 extern crate image;
 extern crate dbus;
 extern crate clap;
+#[macro_use] mod macros;
 
 mod color;
-mod window;
-use window::Window;
 use color::Color;
 
 use std::mem::transmute;
@@ -22,9 +20,13 @@ use std::cmp::{min, max};
 
 use wayland_client::EnvHandler;
 use wayland_client::protocol::{wl_compositor, wl_shell, wl_shm, wl_surface,
-                               wl_seat, wl_keyboard, wl_buffer,
-                               wl_output, wl_registry};
+                               wl_seat, wl_buffer,
+                               wl_output};
 use wl_surface::WlSurface;
+use wl_output::WlOutput;
+use wl_shell::WlShell;
+use wl_seat::WlSeat;
+use wl_compositor::WlCompositor;
 
 use wl_shm::Format as WlShmFormat;
 
@@ -48,25 +50,23 @@ mod generated {
 
     pub mod interfaces {
         #[doc(hidden)]
-        use wayland_server::protocol_interfaces::{wl_output_interface, wl_surface_interface};
+        use wayland_client::protocol_interfaces::{wl_output_interface, wl_surface_interface};
         include!(concat!(env!("OUT_DIR"), "/desktop-shell_interface.rs"));
     }
 
     pub mod client {
         #[doc(hidden)]
-        use wayland_server::{Resource, Handler,
-                             Client, Liveness,
-                             EventLoopHandle, EventResult};
+        use wayland_client::{Handler, Liveness, EventQueueHandle, Proxy, RequestResult};
         #[doc(hidden)]
-        use wayland_server::protocol::{wl_output, wl_surface};
-        #[doc(hidden)]
+        use wayland_client::protocol::{wl_compositor, wl_shell, wl_shm, wl_surface,
+                                       wl_seat, wl_keyboard, wl_buffer,
+                                       wl_output, wl_registry};
         use super::interfaces;
         include!(concat!(env!("OUT_DIR"), "/desktop-shell_api.rs"));
     }
 }
 
-use generated::client::desktop_shell::Handler as DesktopShellHandler;
-impl DesktopShellHandler for Window {}
+use generated::client::desktop_shell::DesktopShell;
 
 const CURSOR: &'static [u8; 656] = include_bytes!("../assets/arrow.png");
 
@@ -164,37 +164,46 @@ fn main() {
         .expect("Unable to connect to a wayland compositor");
     let env_id = event_queue.add_handler(EnvHandler::<WaylandEnv>::new());
     let registry = display.get_registry();
+    event_queue.register::<_, EnvHandler<WaylandEnv>>(&registry, env_id);
     // a roundtrip sync will dispatch all event declaring globals to the handler
     // This will make all the globals usable.
     event_queue.sync_roundtrip().expect("Could not sync roundtrip");
-    let output = get_output(env_id, registry, &mut event_queue);
+    let output = get_wayland!(env_id, &registry, &mut event_queue, WlOutput, "wl_output");
 
-    let window = Window::new(0, output, 0, event_queue.state());
-    window.set_background(event_queue.state(),);
-    /*let (env, evt_iter) = WaylandEnv::init(display, iter);
-    let compositor = env.compositor.as_ref().map(|o| &o.0).unwrap();
-    let shell = env.shell.as_ref().map(|o| &o.0).unwrap();
+    let desktop_shell = get_wayland!(env_id, &registry, &mut event_queue, DesktopShell, "desktop_shell");
+    let shell = get_wayland!(env_id, &registry, &mut event_queue, WlShell, "wl_shell");
+    let compositor = get_wayland!(env_id, &registry, &mut event_queue, WlCompositor, "wl_compositor");
+    let seat = get_wayland!(env_id, &registry, &mut event_queue, WlSeat, "wl_seat");
     let mut background_surface = compositor.create_surface();
+    desktop_shell.set_background(&output, &background_surface);
+    event_queue.dispatch()
+        .expect("Could not dispatch queue");
+    let pointer = seat.get_pointer().expect("Could not get pointer from seat global");
     let shell_surface = shell.get_shell_surface(&background_surface);
     shell_surface.set_class("Background".into());
-
     let _background_buffer = if image.is_empty() {
         shell_surface.set_title(format!("Background Color: {}", color.to_u32()));
 
-        generate_solid_background(color, &mut background_surface, &env)
+        generate_solid_background(color, &mut event_queue, &mut background_surface, env_id)
     } else {
         // TODO Actually give it the path or something idk
         shell_surface.set_title(format!("Background Image: {}", image));
 
-        generate_image_background(image.as_ref(), mode, color, &mut background_surface, &env)
+        generate_image_background(image.as_ref(), &mut event_queue, mode, color, &mut background_surface, env_id)
     }.expect("could not generate image");
 
     background_surface.commit();
     background_surface.set_buffer_scale(1);
     let mut cursor_surface = compositor.create_surface();
-    let _cursor_buffer = self::cursor_surface(&mut cursor_surface, &env);
-    */
-    //main_background_loop(background_surface, cursor_surface, evt_iter, &env);
+    let _cursor_buffer = self::cursor_surface(&mut cursor_surface, &mut event_queue, env_id);
+    loop {
+        display.flush()
+            .expect("Could not flush display");
+        event_queue.dispatch()
+            .expect("Could not dispatch queue");
+        pointer.set_cursor(0, Some(&cursor_surface), 0, 0)
+            .expect("Could not set cursor");
+    }
 }
 
 fn rgba_conversion(num: u8, third_num: u32) -> u8 {
@@ -246,11 +255,14 @@ fn get_screen_resolution(con: Connection) -> (i32, i32) {
 
 /// Given a solid color, writes bytes associated with that color to
 /// a special Wayland surface which is then rendered as a background for Way Cooler.
-/*
-fn generate_solid_background(color: Color, background_surface: &mut wl_surface::WlSurface,
-                                 env: &WaylandEnv) -> BufferResult {
+fn generate_solid_background(color: Color,
+                             event_queue: &mut wayland_client::EventQueue,
+                             background_surface: &mut wl_surface::WlSurface,
+                             env_id: usize) -> BufferResult {
     // Get shortcuts to the globals.
-    let shm = env.shm.as_ref().map(|o| &o.0).unwrap();
+    let state = event_queue.state();
+    let env = state.get_handler::<EnvHandler<WaylandEnv>>(env_id);
+    let shm = &env.shm;
 
     // Create the surface we are going to write into
     let mut tmp = tempfile::tempfile().ok().expect("Unable to create a tempfile.");
@@ -272,7 +284,8 @@ fn generate_solid_background(color: Color, background_surface: &mut wl_surface::
 
     // Create the buffer that is mem-mapped to the temp file descriptor
     let pool = shm.create_pool(tmp.as_raw_fd(), size);
-    let background_buffer = pool.create_buffer(0, width, height, width, WlShmFormat::Argb8888);
+    let background_buffer = pool.create_buffer(0, width, height, width, WlShmFormat::Argb8888)
+        .expect("Could not create buffer");
     // Tell Way Cooler not to set put this in the tree, treat as background
 
     // Attach the buffer to the surface
@@ -297,9 +310,15 @@ fn fill_image_base_color(image: DynamicImage, color: Color) -> DynamicImage {
 
 /// Given the data from an image, writes it to a special Wayland surface
 /// which is then rendered as a background for Way Cooler.
-fn generate_image_background(path: &str, mode: BackgroundMode, color: Color,
-                             background_surface: &mut wl_surface::WlSurface, env: &WaylandEnv) -> BufferResult {
+fn generate_image_background(path: &str,
+                             event_queue: &mut wayland_client::EventQueue,
+                             mode: BackgroundMode,
+                             color: Color,
+                             background_surface: &mut wl_surface::WlSurface,
+                             env_id: usize) -> BufferResult {
     // TODO support more formats, split into separate function
+    let state = event_queue.state();
+    let env = state.get_handler::<EnvHandler<WaylandEnv>>(env_id);
     let image = open(path)
         .unwrap_or_else(|_| {
             println!("Could not open image file \"{:?}\"", path);
@@ -419,11 +438,12 @@ fn generate_image_background(path: &str, mode: BackgroundMode, color: Color,
     tmp.set_len(img_size as u64).expect("Could not truncate length of file");
     tmp.write_all(&*vec).unwrap();
 
-    let shm = env.shm.as_ref().map(|o| &o.0).unwrap();
+    let shm = &env.shm;
 
     // Create the surface we are going to write into
     let pool = shm.create_pool(tmp.as_raw_fd(), img_size as i32);
-    let background_buffer = pool.create_buffer(0, scr_width as i32, scr_height as i32, img_stride as i32, WlShmFormat::Argb8888);
+    let background_buffer = pool.create_buffer(0, scr_width as i32, scr_height as i32, img_stride as i32, WlShmFormat::Argb8888)
+        .expect("Could not create buffer");
 
     // Attach the buffer to the surface
     background_surface.attach(Some(&background_buffer), 0, 0);
@@ -431,8 +451,12 @@ fn generate_image_background(path: &str, mode: BackgroundMode, color: Color,
     Ok(background_buffer)
 }
 
-fn cursor_surface(cursor_surface: &mut wl_surface::WlSurface, env: &WaylandEnv) -> BufferResult {
-    let shm = env.shm.as_ref().map(|o| &o.0).unwrap();
+fn cursor_surface(cursor_surface: &mut wl_surface::WlSurface,
+                  event_queue: &mut wayland_client::EventQueue,
+                  env_id: usize) -> BufferResult {
+    let state = event_queue.state();
+    let env = state.get_handler::<EnvHandler<WaylandEnv>>(env_id);
+    let shm = &env.shm;
 
     let image = load_from_memory(CURSOR)
         .expect("Could not read cursor data, report to maintainer!");
@@ -459,11 +483,11 @@ fn cursor_surface(cursor_surface: &mut wl_surface::WlSurface, env: &WaylandEnv) 
     tmp.set_len(size as u64).expect("Could not truncate length of file");
     tmp.write_all(&*vec).unwrap();
     let pool = shm.create_pool(tmp.as_raw_fd(), size as i32);
-    let cursor_buffer = pool.create_buffer(0, width as i32, height as i32, stride as i32, WlShmFormat::Argb8888);
+    let cursor_buffer = pool.create_buffer(0, width as i32, height as i32, stride as i32, WlShmFormat::Argb8888)
+        .expect("Could not create buffer");
     cursor_surface.attach(Some(&cursor_buffer), 0, 0);
     Ok(cursor_buffer)
 }
-*/
 
 /*
 /// Main loop for rendering backgrounds.
@@ -504,23 +528,6 @@ fn main_background_loop(background_surface: WlSurface, cursor_surface: WlSurface
     }
 }
  */
-
-fn get_output(env_id: usize,
-              registry: wl_registry::WlRegistry,
-              event_queue: &mut wayland_client::EventQueue)
-              -> wl_output::WlOutput {
-    let state = event_queue.state();
-    let env = state.get_handler::<EnvHandler<WaylandEnv>>(env_id);
-    for &(name, ref interface, version) in env.globals() {
-        if interface == "wl_output" {
-            return registry.bind::<wl_output::WlOutput>(version, name)
-        }
-    }
-    for &(name, ref interface, version) in env.globals() {
-        println!("{:4} : {} (version {})", name, interface, version);
-    }
-    panic!("Could not find wl_output to bind to");
-}
 
 #[test]
 fn test_rgba_conversion() {
