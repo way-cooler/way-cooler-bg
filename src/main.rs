@@ -414,16 +414,19 @@ fn generate_image_background(path: &str,
         }
     }
 
-    let vec = image_rgba.into_vec();
     let mut tmp = tempfile::NamedTempFile::new().expect("Unable to create a tempfile.");
     tmp.set_len(img_size as u64).expect("Could not truncate length of file");
-    tmp.write_all(&*vec).unwrap();
+    tmp.write_all(&image_rgba).unwrap();
 
     let shm = &env.shm;
 
     // Create the surface we are going to write into
     let pool = shm.create_pool(tmp.as_raw_fd(), img_size as i32);
-    let background_buffer = pool.create_buffer(0, scr_width as i32, scr_height as i32, img_stride as i32, WlShmFormat::Argb8888)
+    let background_buffer = pool.create_buffer(0,
+                                               scr_width as i32,
+                                               scr_height as i32,
+                                               img_stride as i32,
+                                               WlShmFormat::Argb8888)
         .expect("Could not create buffer");
 
     // Attach the buffer to the surface
