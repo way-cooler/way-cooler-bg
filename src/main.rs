@@ -213,7 +213,7 @@ fn get_screen_resolution(con: Connection) -> (i32, i32) {
     let screen_r = &screen_r.get_items()[0];
     let output_id = match screen_r {
         &MessageItem::Array(ref items, _) => {
-            match items[0] {
+            match items[1] {
                 MessageItem::Str(ref string) => string.clone(),
                 _ => panic!("Array didn't contain output id")
             }
@@ -310,6 +310,7 @@ fn generate_image_background(path: &str, mode: BackgroundMode, color: Color,
     let dbus_con = Connection::get_private(BusType::Session).unwrap();
     let resolution = get_screen_resolution(dbus_con);
     let (scr_width, scr_height) = (resolution.0 as u32, resolution.1 as u32);
+    println!("WIDTH: {}, HEIGHT: {}", scr_width, scr_height);
 
     let img_width = image.width();
     let img_height = image.height();
