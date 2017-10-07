@@ -26,7 +26,7 @@ fn generate_wayland_protocols() {
         generate_code(
             path.clone(),
             out_dir.join(file_name.clone() + "_api.rs"),
-            Side::Server
+            Side::Client
         );
         generate_interfaces(
             path,

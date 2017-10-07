@@ -22,7 +22,6 @@ use wayland_client::EnvHandler;
 use wayland_client::protocol::{wl_compositor, wl_shell, wl_shm, wl_surface,
                                wl_seat, wl_buffer,
                                wl_output};
-use wl_surface::WlSurface;
 use wl_output::WlOutput;
 use wl_shell::WlShell;
 use wl_seat::WlSeat;
@@ -168,12 +167,19 @@ fn main() {
     // a roundtrip sync will dispatch all event declaring globals to the handler
     // This will make all the globals usable.
     event_queue.sync_roundtrip().expect("Could not sync roundtrip");
-    let output = get_wayland!(env_id, &registry, &mut event_queue, WlOutput, "wl_output");
+    let desktop_shell = match get_wayland!(env_id, &registry, &mut event_queue, DesktopShell, "desktop_shell") {
+        Some(shell) => shell,
+        None => {
+            eprintln!("Please make sure you're running the correct version of Way Cooler");
+            eprintln!("This program only supports versions >= 0.7");
+            ::std::process::exit(1);
+        }
+    };
+    let output = get_wayland!(env_id, &registry, &mut event_queue, WlOutput, "wl_output").unwrap();
 
-    let desktop_shell = get_wayland!(env_id, &registry, &mut event_queue, DesktopShell, "desktop_shell");
-    let shell = get_wayland!(env_id, &registry, &mut event_queue, WlShell, "wl_shell");
-    let compositor = get_wayland!(env_id, &registry, &mut event_queue, WlCompositor, "wl_compositor");
-    let seat = get_wayland!(env_id, &registry, &mut event_queue, WlSeat, "wl_seat");
+    let shell = get_wayland!(env_id, &registry, &mut event_queue, WlShell, "wl_shell").unwrap();
+    let compositor = get_wayland!(env_id, &registry, &mut event_queue, WlCompositor, "wl_compositor").unwrap();
+    let seat = get_wayland!(env_id, &registry, &mut event_queue, WlSeat, "wl_seat").unwrap();
     let mut background_surface = compositor.create_surface();
     desktop_shell.set_background(&output, &background_surface);
     event_queue.dispatch()

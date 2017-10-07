@@ -12,13 +12,14 @@ macro_rules! get_wayland {
             }
         }
         match value {
-            Some(v) => v,
-            _ => {
+            None => {
                 for &(name, ref interface, version) in env.globals() {
-                    println!("{:4} : {} (version {})", name, interface, version);
+                    eprintln!("{:4} : {} (version {})", name, interface, version);
                 }
-                panic!(concat!("Could not find ", $name, " to bind to"));
-            }
+                eprintln!(concat!("Could not find the ", $name, " protocol!"));
+                None
+            },
+            v => v
         }
     }}
 }
