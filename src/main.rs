@@ -180,13 +180,14 @@ fn main() {
             event_queue.register::<_, Resolution>(&output, resolution_id);
             resolution_id
         }).collect();
-    for (output, resolution_id) in outputs.into_iter().zip(resolutions) {
-
-        let mut background_surface = compositor.create_surface();
-        desktop_shell.set_background(&output, &background_surface);
-        event_queue.dispatch()
-            .expect("Could not dispatch queue");
-
+    let mut bg_metadata = outputs.iter().zip(resolutions).map(|(output, res_id)| {
+        let background_surface = compositor.create_surface();
+        desktop_shell.set_background(output, &background_surface);
+        (output, res_id, background_surface)
+    });
+    event_queue.dispatch()
+        .expect("Could not dispatch queue");
+    for (output, resolution_id, mut background_surface) in &mut bg_metadata {
         let resolution: Resolution = { *event_queue.state().get_handler(resolution_id) };
         assert!(resolution.w * resolution.h != 0);
         let shell_surface = shell.get_shell_surface(&background_surface);
@@ -308,8 +309,6 @@ fn generate_image_background(path: &str,
         .unwrap_or_else(|_| {
             load_from_memory(include_bytes!("../assets/official-background.png"))
                 .expect("Could not read in official background image")
-            //println!("Could not open image file \"{:?}\"", path);
-            //::std::process::exit(1);
         });
     let (scr_width, scr_height) = (resolution.w as u32, resolution.h as u32);
 
