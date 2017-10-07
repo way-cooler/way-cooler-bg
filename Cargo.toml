@@ -5,10 +5,12 @@ authors = ["Timidger <APragmaticPlace@gmail.com>"]
 description = "Background program for Way Cooler"
 repository = "https://github.com/way-cooler/way-cooler-bg"
 license = "MIT"
+build = "build.rs"
 
 [dependencies]
-wayland-sys = { version = "^0.6.0", features = ["client", "dlopen"] }
-wayland-client = { version = "^0.6.0", features = ["cursor", "dlopen"] }
+wayland-sys = { version = "^0.9.0", features = ["client", "dlopen"] }
+wayland-client = { version = "^0.9.0", features = ["cursor", "dlopen"] }
+wayland-server = { version = "^0.9.0", features = ["dlopen"] }
 tempfile = "2.1"
 byteorder = ">= 0.3, < 0.6"
 image = "^0.10.3"
