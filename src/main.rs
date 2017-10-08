@@ -6,12 +6,10 @@ extern crate tempfile;
 extern crate byteorder;
 extern crate image;
 extern crate clap;
-#[macro_use] mod macros;
+#[macro_use] extern crate way_cooler_client_helpers;
 
-mod color;
-mod resolution;
-use resolution::Resolution;
-use color::Color;
+use way_cooler_client_helpers::color::Color;
+use way_cooler_client_helpers::wayland::Resolution;
 
 use std::mem::transmute;
 use std::os::unix::io::AsRawFd;

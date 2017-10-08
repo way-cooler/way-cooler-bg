@@ -8,6 +8,7 @@ license = "MIT"
 build = "build.rs"
 
 [dependencies]
+way-cooler-client-helpers = { version = "0.1" }
 wayland-sys = { version = "^0.9.0", features = ["client", "dlopen"] }
 wayland-client = { version = "^0.9.0", features = ["cursor", "dlopen"] }
 tempfile = "2.1"
