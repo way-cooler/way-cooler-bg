@@ -1,18 +1,20 @@
 [package]
-name = "way-cooler-bg"
-version = "0.2.1"
+name = "wc-bg"
+version = "0.3.0"
 authors = ["Timidger <APragmaticPlace@gmail.com>"]
 description = "Background program for Way Cooler"
 repository = "https://github.com/way-cooler/way-cooler-bg"
 license = "MIT"
+build = "build.rs"
 
 [dependencies]
-wayland-sys = { version = "^0.6.0", features = ["client", "dlopen"] }
-wayland-client = { version = "^0.6.0", features = ["cursor", "dlopen"] }
+way-cooler-client-helpers = { version = "0.1" }
+wayland-sys = { version = "^0.9.0", features = ["client", "dlopen"] }
+wayland-client = { version = "^0.9.0", features = ["cursor", "dlopen"] }
 tempfile = "2.1"
 byteorder = ">= 0.3, < 0.6"
 image = "^0.10.3"
-dbus = "0.5.2"
 clap = "2.23.2"
 
-# To make this work, gotta compile against the git version, because I'm grabbing gdk-sys not from git...
+[build-dependencies]
+wayland-scanner = { version = "0.9.1" }
