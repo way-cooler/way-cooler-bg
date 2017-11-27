@@ -1,8 +1,5 @@
 # To Build
 
-## Prerequisites
-
-* dbus (library and header files)
 
 ## Build and install
 
